@@ -13,15 +13,16 @@
  * And a two-line block format (card name / set name on consecutive lines):
  *   Card Name
  *   Set Name
- * And an extended multi-line block format:
+ * And an extended multi-line block format (as copied from TCGPlayer orders):
  *   Card Name
+ *   Card Name          (optional duplicate — present when the card image is also selected)
  *   Set Name
- *   Rarity: X           (optional, ignored)
+ *   Sold by ___        (optional, ignored — may appear before or after Rarity)
+ *   Rarity: X          (optional, ignored — may appear before or after Sold by)
  *   Condition: X  $P  Q
- *   Sold by ___         (optional, ignored)
  *
  * @param {string} text - Raw pasted text from a TCGPlayer order/cart/collection page.
- * @returns {{ quantity: number, name: string, setName: string, condition: string, foil: boolean }[]}
+ * @returns {{ quantity: number, name: string, setName: string, condition: string, foil: boolean, price?: number }[]}
  */
 function parseLines(text) {
   const lines = text
@@ -120,7 +121,8 @@ function parseSingleLine(line) {
  * Returns null if:
  *  - the second line does not look like an MTG set name, or
  *  - the second line contains brackets (meaning it is itself a single-line card entry), or
- *  - the first line looks like a price or condition (not a card name).
+ *  - the first line looks like a price or condition (not a card name), or
+ *  - the first line contains a tab character (e.g. a table header row).
  *
  * @param {string} cardLine
  * @param {string} setLine
@@ -132,6 +134,8 @@ function parseMultiLine(cardLine, setLine) {
   if (/\[/.test(setLine)) return null;
   // Reject if cardLine looks like a price
   if (/^\$[\d.]+/.test(cardLine)) return null;
+  // Reject tab-containing lines (e.g. "ITEMS\tDETAILS\tPRICE\tQUANTITY" table headers)
+  if (/\t/.test(cardLine)) return null;
 
   // Extract optional leading quantity from cardLine
   const qtyPrefixRe = /^(\d+)\s*[xX]\s*(.+)$/;
@@ -171,49 +175,66 @@ function isSoldByLine(text) {
 
 /**
  * Parses a "Condition: <condition>  $<price>  <quantity>" line.
- * Returns { condition, foil, quantity } or null if the line does not match.
+ * Returns { condition, foil, price, quantity } or null if the line does not match.
  *
  * @param {string} text
- * @returns {{ condition: string, foil: boolean, quantity: number } | null}
+ * @returns {{ condition: string, foil: boolean, price: number, quantity: number } | null}
  */
 function parseConditionLine(text) {
-  const re = /^Condition:\s+(.+?)\s+\$[\d.]+\s+(\d+)$/i;
+  const re = /^Condition:\s+(.+?)\s+\$([\d.]+)\s+(\d+)$/i;
   const m = text.match(re);
   if (!m) return null;
   const { condition, foil } = parseCondition(m[1].trim());
-  const quantity = parseInt(m[2], 10);
-  return { condition, foil, quantity };
+  const price = parseFloat(m[2]);
+  const quantity = parseInt(m[3], 10);
+  return { condition, foil, price, quantity };
 }
 
 /**
  * Attempts to parse an extended multi-line block:
  *   Card Name
+ *   Card Name          (optional duplicate line — present when the card image is also selected)
  *   Set Name
- *   Rarity: X           (optional, ignored)
+ *   Sold by ___        (optional, ignored — may appear before or after Rarity)
+ *   Rarity: X          (optional, ignored)
  *   Condition: X  $P  Q
- *   Sold by ___         (optional, ignored)
  *
  * @param {string[]} lines     - Full array of trimmed non-empty lines
  * @param {number}   startIdx
- * @returns {{ card: { quantity: number, name: string, setName: string, condition: string, foil: boolean }, consumed: number } | null}
+ * @returns {{ card: { quantity: number, name: string, setName: string, condition: string, foil: boolean, price: number }, consumed: number } | null}
  */
 function parseExtendedMultiLineBlock(lines, startIdx) {
   if (startIdx + 2 >= lines.length) return null;
 
   const cardLine = lines[startIdx];
-  const setLine = lines[startIdx + 1];
 
-  // Card line must not be a price, rarity annotation, condition line, or sold-by line
+  // Card line must not be a price, rarity annotation, condition line, sold-by line, or table header
   if (/^\$[\d.]+/.test(cardLine)) return null;
   if (isRarityLine(cardLine)) return null;
   if (isSoldByLine(cardLine)) return null;
   if (parseConditionLine(cardLine)) return null;
+  // Reject lines containing tabs (e.g. "ITEMS\tDETAILS\tPRICE\tQUANTITY" table headers)
+  if (/\t/.test(cardLine)) return null;
+
+  // Determine set line index, skipping an optional duplicate of the card name
+  let setLineIdx = startIdx + 1;
+  if (lines[setLineIdx] === cardLine) {
+    setLineIdx = startIdx + 2;
+    if (setLineIdx >= lines.length) return null;
+  }
+
+  const setLine = lines[setLineIdx];
 
   // Set line must look like a set name and not already encode a full card entry
   if (!looksLikeSetName(setLine)) return null;
   if (/\[/.test(setLine)) return null;
 
-  let j = startIdx + 2;
+  let j = setLineIdx + 1;
+
+  // Skip any "Sold by" lines (may appear before Rarity in TCGPlayer order format)
+  while (j < lines.length && isSoldByLine(lines[j])) {
+    j++;
+  }
 
   // Skip any Rarity lines
   while (j < lines.length && isRarityLine(lines[j])) {
@@ -239,6 +260,7 @@ function parseExtendedMultiLineBlock(lines, startIdx) {
       setName: setLine.trim(),
       condition: condData.condition,
       foil: condData.foil,
+      price: condData.price,
     },
     consumed,
   };
@@ -253,6 +275,7 @@ function parseExtendedMultiLineBlock(lines, startIdx) {
  */
 function looksLikeSetName(text) {
   if (!text || text.length === 0 || text.length > 80) return false;
+  if (/\t/.test(text)) return false; // tab-separated values (e.g. table headers)
   if (/^\$[\d.]+/.test(text)) return false; // price
   if (/^(Near Mint|Lightly Played|Moderately Played|Heavily Played|Damaged|NM|LP|MP|HP)\b/i.test(text)) return false;
   if (/^(English|French|German|Spanish|Italian|Portuguese|Japanese|Korean|Chinese)\b/i.test(text)) return false;

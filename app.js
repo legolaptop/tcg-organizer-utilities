@@ -299,11 +299,33 @@
 
   function looksLikeSetName(text) {
     if (!text || text.length === 0 || text.length > 80) return false;
+    if (/\t/.test(text)) return false;
     if (/^\$[\d.]+/.test(text)) return false;
     if (/^(Near Mint|Lightly Played|Moderately Played|Heavily Played|Damaged|NM|LP|MP|HP)\b/i.test(text)) return false;
     if (/^(English|French|German|Spanish|Italian|Portuguese|Japanese|Korean|Chinese)\b/i.test(text)) return false;
     if (/^\d+$/.test(text)) return false;
+    if (/^Rarity:/i.test(text)) return false;
+    if (/^Condition:/i.test(text)) return false;
+    if (/^Sold by\b/i.test(text)) return false;
     return true;
+  }
+
+  function isRarityLine(text) {
+    return /^Rarity:/i.test(text);
+  }
+
+  function isSoldByLine(text) {
+    return /^Sold by\b/i.test(text);
+  }
+
+  function parseConditionLine(text) {
+    const re = /^Condition:\s+(.+?)\s+\$([\d.]+)\s+(\d+)$/i;
+    const m = text.match(re);
+    if (!m) return null;
+    const { condition, foil } = parseCondition(m[1].trim());
+    const price = parseFloat(m[2]);
+    const quantity = parseInt(m[3], 10);
+    return { condition, foil, price, quantity };
   }
 
   function parseSingleLine(line) {
@@ -343,6 +365,7 @@
     if (!looksLikeSetName(setLine)) return null;
     if (/\[/.test(setLine)) return null;
     if (/^\$[\d.]+/.test(cardLine)) return null;
+    if (/\t/.test(cardLine)) return null;
 
     const qtyPrefixRe = /^(\d+)\s*[xX]\s*(.+)$/;
     const qm = cardLine.match(qtyPrefixRe);
@@ -356,6 +379,61 @@
       setName: setLine.trim(),
       condition: 'Near Mint',
       foil: false,
+    };
+  }
+
+  function parseExtendedMultiLineBlock(lines, startIdx) {
+    if (startIdx + 2 >= lines.length) return null;
+
+    const cardLine = lines[startIdx];
+
+    if (/^\$[\d.]+/.test(cardLine)) return null;
+    if (isRarityLine(cardLine)) return null;
+    if (isSoldByLine(cardLine)) return null;
+    if (parseConditionLine(cardLine)) return null;
+    if (/\t/.test(cardLine)) return null;
+
+    let setLineIdx = startIdx + 1;
+    if (lines[setLineIdx] === cardLine) {
+      setLineIdx = startIdx + 2;
+      if (setLineIdx >= lines.length) return null;
+    }
+
+    const setLine = lines[setLineIdx];
+
+    if (!looksLikeSetName(setLine)) return null;
+    if (/\[/.test(setLine)) return null;
+
+    let j = setLineIdx + 1;
+
+    while (j < lines.length && isSoldByLine(lines[j])) {
+      j++;
+    }
+
+    while (j < lines.length && isRarityLine(lines[j])) {
+      j++;
+    }
+
+    if (j >= lines.length) return null;
+    const condData = parseConditionLine(lines[j]);
+    if (!condData) return null;
+
+    let consumed = j - startIdx + 1;
+
+    while (startIdx + consumed < lines.length && isSoldByLine(lines[startIdx + consumed])) {
+      consumed++;
+    }
+
+    return {
+      card: {
+        quantity: condData.quantity,
+        name: cardLine.trim(),
+        setName: setLine.trim(),
+        condition: condData.condition,
+        foil: condData.foil,
+        price: condData.price,
+      },
+      consumed,
     };
   }
 
@@ -376,6 +454,13 @@
         continue;
       }
 
+      const extended = parseExtendedMultiLineBlock(lines, i);
+      if (extended) {
+        cards.push(extended.card);
+        i += extended.consumed;
+        continue;
+      }
+
       if (i + 1 < lines.length) {
         const multi = parseMultiLine(lines[i], lines[i + 1]);
         if (multi) {
@@ -391,6 +476,64 @@
     return cards;
   }
 
+  // ── Card validator (Scryfall collection API) ─────────────────────────────
+
+  const SCRYFALL_COLLECTION_URL = 'https://api.scryfall.com/cards/collection';
+  const VALIDATOR_BATCH_SIZE = 75;
+  const _validatorCache = new Map();
+
+  function normalizeCardName(name) {
+    return name.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  }
+
+  async function _validateBatch(keys) {
+    const identifiers = keys.map((k) => ({ name: k }));
+    try {
+      const res = await fetch(SCRYFALL_COLLECTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`Scryfall returned ${res.status}`);
+      const json = await res.json();
+      const notFoundKeys = new Set(
+        (json.not_found || []).map((nf) => (nf.name || '').toLowerCase()).filter(Boolean)
+      );
+      for (const k of keys) {
+        _validatorCache.set(k, !notFoundKeys.has(k));
+      }
+    } catch {
+      for (const k of keys) {
+        if (!_validatorCache.has(k)) {
+          _validatorCache.set(k, true);
+        }
+      }
+    }
+  }
+
+  async function validateCardNames(names) {
+    const normalizedNames = names.map(normalizeCardName);
+    const uncachedKeys = [
+      ...new Set(
+        normalizedNames.map((n) => n.toLowerCase()).filter((k) => !_validatorCache.has(k))
+      ),
+    ];
+    if (uncachedKeys.length > 0) {
+      const batches = [];
+      for (let i = 0; i < uncachedKeys.length; i += VALIDATOR_BATCH_SIZE) {
+        batches.push(uncachedKeys.slice(i, i + VALIDATOR_BATCH_SIZE));
+      }
+      await Promise.all(batches.map((batch) => _validateBatch(batch)));
+    }
+    const result = new Map();
+    for (let i = 0; i < names.length; i++) {
+      const key = normalizedNames[i].toLowerCase();
+      result.set(names[i], _validatorCache.get(key) ?? true);
+    }
+    return result;
+  }
+
   // ── CSV formatter ────────────────────────────────────────────────────────
 
   function csvField(value) {
@@ -402,9 +545,10 @@
   }
 
   function formatToCSV(cards) {
-    const header = 'Count,Name,Edition,Condition,Language,Foil';
+    const header = 'Count,Name,Edition,Condition,Language,Foil,Price';
     const rows = cards.map((c) => {
       const foilValue = c.foil ? 'foil' : '';
+      const priceValue = c.price != null ? c.price.toFixed(2) : '';
       return [
         c.quantity,
         csvField(c.name),
@@ -412,6 +556,7 @@
         csvField(c.condition),
         'English',
         foilValue,
+        priceValue,
       ].join(',');
     });
     return [header, ...rows].join('\n');
@@ -448,12 +593,20 @@
         return;
       }
 
-      const cards = await Promise.all(
+      const resolved = await Promise.all(
         parsed.map(async (card) => ({
           ...card,
           setCode: await convertSetName(card.setName),
         }))
       );
+
+      const validityMap = await validateCardNames(resolved.map((c) => c.name));
+      const cards = resolved.filter((c) => validityMap.get(c.name) !== false);
+
+      if (cards.length === 0) {
+        showError('No cards could be parsed from the provided text. Please check the format.');
+        return;
+      }
 
       const csv = formatToCSV(cards);
 

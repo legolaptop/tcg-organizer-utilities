@@ -5,6 +5,7 @@ const path = require('path');
 const { parseLines } = require('./src/parser');
 const { convertSetName } = require('./src/setConverter');
 const { formatToCSV } = require('./src/csvFormatter');
+const { validateCardNames } = require('./src/cardValidator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,10 +43,20 @@ app.post('/api/convert', async (req, res) => {
       }))
     );
 
-    // 3. Format as CSV
-    const csv = formatToCSV(resolved);
+    // 3. Validate card names against Scryfall (batch lookup, cached after first call)
+    const validityMap = await validateCardNames(resolved.map((c) => c.name));
+    const cards = resolved.filter((c) => validityMap.get(c.name) !== false);
 
-    return res.json({ csv, cards: resolved });
+    if (cards.length === 0) {
+      return res.status(422).json({
+        error: 'No cards could be parsed from the provided text. Please check the format.',
+      });
+    }
+
+    // 4. Format as CSV
+    const csv = formatToCSV(cards);
+
+    return res.json({ csv, cards });
   } catch (err) {
     console.error('Conversion error:', err);
     return res.status(500).json({ error: 'Internal server error during conversion.' });

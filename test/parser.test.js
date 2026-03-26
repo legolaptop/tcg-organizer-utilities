@@ -60,6 +60,7 @@ describe('looksLikeSetName', () => {
     ['Rarity: R',                   false],
     ['Condition: Near Mint',        false],
     ['Sold by SomeSeller',          false],
+    ['ITEMS\tDETAILS\tPRICE\tQUANTITY', false],
   ])('"%s" → %s', (input, expected) => {
     expect(looksLikeSetName(input)).toBe(expected);
   });
@@ -126,6 +127,10 @@ describe('parseMultiLine', () => {
   test('returns null when second line looks like a condition', () => {
     expect(parseMultiLine('Black Lotus', 'Near Mint')).toBeNull();
   });
+
+  test('returns null when card line contains a tab (e.g. table header)', () => {
+    expect(parseMultiLine('ITEMS\tDETAILS\tPRICE\tQUANTITY', 'Dominaria')).toBeNull();
+  });
 });
 
 // ── isRarityLine ──────────────────────────────────────────────
@@ -159,17 +164,17 @@ describe('isSoldByLine', () => {
 describe('parseConditionLine', () => {
   test('parses condition, price, and quantity separated by tabs', () => {
     expect(parseConditionLine('Condition: Lightly Played\t$10.59\t1'))
-      .toEqual({ condition: 'Lightly Played', foil: false, quantity: 1 });
+      .toEqual({ condition: 'Lightly Played', foil: false, price: 10.59, quantity: 1 });
   });
 
   test('parses Near Mint with quantity > 1', () => {
     expect(parseConditionLine('Condition: Near Mint\t$6.28\t3'))
-      .toEqual({ condition: 'Near Mint', foil: false, quantity: 3 });
+      .toEqual({ condition: 'Near Mint', foil: false, price: 6.28, quantity: 3 });
   });
 
   test('parses condition separated by spaces', () => {
     expect(parseConditionLine('Condition: Near Mint $6.28 1'))
-      .toEqual({ condition: 'Near Mint', foil: false, quantity: 1 });
+      .toEqual({ condition: 'Near Mint', foil: false, price: 6.28, quantity: 1 });
   });
 
   test('returns null for a plain card name line', () => {
@@ -202,6 +207,7 @@ describe('parseExtendedMultiLineBlock', () => {
       setName: 'FINAL FANTASY',
       condition: 'Lightly Played',
       foil: false,
+      price: 10.59,
     });
     expect(result.consumed).toBe(4);
   });
@@ -220,6 +226,7 @@ describe('parseExtendedMultiLineBlock', () => {
       setName: 'Commander: Tarkir: Dragonstorm',
       condition: 'Near Mint',
       quantity: 1,
+      price: 6.28,
     });
   });
 
@@ -235,6 +242,7 @@ describe('parseExtendedMultiLineBlock', () => {
     expect(result).not.toBeNull();
     expect(result.consumed).toBe(5);
     expect(result.card.name).toBe('Black Lotus');
+    expect(result.card.price).toBe(500.00);
   });
 
   test('works without a rarity line', () => {
@@ -245,7 +253,7 @@ describe('parseExtendedMultiLineBlock', () => {
     ];
     const result = parseExtendedMultiLineBlock(lines, 0);
     expect(result).not.toBeNull();
-    expect(result.card).toMatchObject({ name: 'Forest', quantity: 4 });
+    expect(result.card).toMatchObject({ name: 'Forest', quantity: 4, price: 0.25 });
     expect(result.consumed).toBe(3);
   });
 
@@ -263,6 +271,57 @@ describe('parseExtendedMultiLineBlock', () => {
       'Black Lotus',
       'Near Mint',
       'Condition: Near Mint\t$500.00\t1',
+    ];
+    expect(parseExtendedMultiLineBlock(lines, 0)).toBeNull();
+  });
+
+  test('skips duplicate card name line (TCGPlayer image+name selection)', () => {
+    const lines = [
+      'Alesha, Who Laughs at Fate',
+      'Alesha, Who Laughs at Fate',
+      'Foundations',
+      'Sold by StevensonGames',
+      'Rarity: R',
+      'Condition: Near Mint\t$1.76\t1',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.card).toEqual({
+      quantity: 1,
+      name: 'Alesha, Who Laughs at Fate',
+      setName: 'Foundations',
+      condition: 'Near Mint',
+      foil: false,
+      price: 1.76,
+    });
+    expect(result.consumed).toBe(6);
+  });
+
+  test('skips "Sold by" line appearing before rarity', () => {
+    const lines = [
+      'Animate Dead',
+      'The List Reprints',
+      'Sold by Tarkan\'s Cards',
+      'Rarity: U',
+      'Condition: Near Mint\t$8.79\t1',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.card).toMatchObject({
+      name: 'Animate Dead',
+      setName: 'The List Reprints',
+      condition: 'Near Mint',
+      price: 8.79,
+    });
+    expect(result.consumed).toBe(5);
+  });
+
+  test('returns null when card line contains a tab (table header)', () => {
+    const lines = [
+      'ITEMS\tDETAILS\tPRICE\tQUANTITY',
+      'Alesha, Who Laughs at Fate',
+      'Foundations',
+      'Condition: Near Mint\t$1.76\t1',
     ];
     expect(parseExtendedMultiLineBlock(lines, 0)).toBeNull();
   });
@@ -319,6 +378,7 @@ Elvish Mystic [Magic 2015 Core Set]
       setName: 'FINAL FANTASY',
       condition: 'Lightly Played',
       foil: false,
+      price: 10.59,
     });
     expect(cards[1]).toEqual({
       quantity: 1,
@@ -326,6 +386,7 @@ Elvish Mystic [Magic 2015 Core Set]
       setName: 'Commander: Tarkir: Dragonstorm',
       condition: 'Near Mint',
       foil: false,
+      price: 6.28,
     });
   });
 
@@ -340,11 +401,48 @@ Elvish Mystic [Magic 2015 Core Set]
 
     const cards = parseLines(text);
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ name: 'Black Lotus', condition: 'Near Mint', quantity: 1 });
+    expect(cards[0]).toMatchObject({ name: 'Black Lotus', condition: 'Near Mint', quantity: 1, price: 500.00 });
   });
 
   test('returns empty array for empty input', () => {
     expect(parseLines('')).toEqual([]);
     expect(parseLines('   \n  ')).toEqual([]);
+  });
+
+  test('parses TCGPlayer order format with duplicate card name and Sold by before rarity', () => {
+    const text = [
+      'ITEMS\tDETAILS\tPRICE\tQUANTITY',
+      'Alesha, Who Laughs at Fate',
+      'Alesha, Who Laughs at Fate',
+      'Foundations',
+      'Sold by StevensonGames',
+      'Rarity: R',
+      'Condition: Near Mint\t$1.76\t1',
+      'Anguished Unmaking',
+      'Anguished Unmaking',
+      'Commander: The Lord of the Rings: Tales of Middle-earth',
+      'Sold by TheVaultOnline',
+      'Rarity: R',
+      'Condition: Near Mint\t$2.51\t1',
+    ].join('\n');
+
+    const cards = parseLines(text);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toEqual({
+      quantity: 1,
+      name: 'Alesha, Who Laughs at Fate',
+      setName: 'Foundations',
+      condition: 'Near Mint',
+      foil: false,
+      price: 1.76,
+    });
+    expect(cards[1]).toEqual({
+      quantity: 1,
+      name: 'Anguished Unmaking',
+      setName: 'Commander: The Lord of the Rings: Tales of Middle-earth',
+      condition: 'Near Mint',
+      foil: false,
+      price: 2.51,
+    });
   });
 });

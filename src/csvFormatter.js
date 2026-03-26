@@ -4,18 +4,19 @@
  * Formats an array of resolved card objects into a CSV string.
  *
  * Output columns:
- *   Count, Name, Edition, Condition, Language, Foil
+ *   Count, Name, Edition, Condition, Language, Foil, Price
  *
  * This format is compatible with common MTG collection managers
  * (Moxfield, Archidekt, Deckbox, etc.).
  *
- * @param {{ quantity: number, name: string, setCode: string, condition: string, foil: boolean }[]} cards
+ * @param {{ quantity: number, name: string, setCode: string, condition: string, foil: boolean, price?: number }[]} cards
  * @returns {string} CSV string including header row.
  */
 function formatToCSV(cards) {
-  const header = 'Count,Name,Edition,Condition,Language,Foil';
+  const header = 'Count,Name,Edition,Condition,Language,Foil,Price';
   const rows = cards.map((c) => {
     const foilValue = c.foil ? 'foil' : '';
+    const priceValue = c.price != null ? c.price.toFixed(2) : '';
     return [
       c.quantity,
       csvField(c.name),
@@ -23,6 +24,7 @@ function formatToCSV(cards) {
       csvField(c.condition),
       'English',
       foilValue,
+      priceValue,
     ].join(',');
   });
   return [header, ...rows].join('\n');

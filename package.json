@@ -2,9 +2,9 @@
   "name": "tcg-organizer-utilities",
   "version": "1.0.0",
   "description": "Utilities to help organize TCG collections",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node app.js",
+    "start": "node server.js",
     "test": "jest --testEnvironment node"
   },
   "dependencies": {

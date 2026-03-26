@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TCG Order → CSV Converter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>TCG Order → CSV</h1>
+      <p class="subtitle">
+        Paste an unformatted order or card list from TCGPlayer (or similar) and
+        convert it to a clean CSV ready for Moxfield, Archidekt, Deckbox, and more.
+      </p>
+    </header>
+
+    <main>
+      <!-- Input section -->
+      <section class="card" id="input-section">
+        <label for="raw-input" class="section-label">Paste your order text</label>
+        <p class="hint">
+          Supported formats (one card per line, or two-line blocks):
+        </p>
+        <ul class="hint-list">
+          <li><code>1x Black Lotus [Limited Edition Alpha] Near Mint</code></li>
+          <li><code>1x Llanowar Elves - Dominaria - Near Mint Foil</code></li>
+          <li><code>Black Lotus [Limited Edition Alpha]</code></li>
+          <li>Two-line: card name on one line, set name on the next</li>
+        </ul>
+        <textarea
+          id="raw-input"
+          rows="12"
+          placeholder="Paste order text here…"
+          spellcheck="false"
+        ></textarea>
+
+        <div class="actions">
+          <button id="convert-btn" class="btn btn-primary">Convert to CSV</button>
+          <button id="clear-btn" class="btn btn-secondary">Clear</button>
+        </div>
+
+        <div id="error-msg" class="error-msg" hidden></div>
+      </section>
+
+      <!-- Output section (hidden until conversion succeeds) -->
+      <section class="card" id="output-section" hidden>
+        <div class="section-header">
+          <label class="section-label">CSV Output</label>
+          <div class="output-actions">
+            <button id="copy-btn" class="btn btn-secondary btn-sm">Copy</button>
+            <button id="download-btn" class="btn btn-primary btn-sm">Download .csv</button>
+          </div>
+        </div>
+
+        <textarea
+          id="csv-output"
+          rows="12"
+          readonly
+          spellcheck="false"
+        ></textarea>
+
+        <p id="card-count" class="card-count"></p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Set abbreviations powered by the
+        <a href="https://scryfall.com/docs/api" target="_blank" rel="noopener">Scryfall API</a>.
+        For Magic: The Gathering cards.
+      </p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

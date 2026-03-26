@@ -6,6 +6,10 @@ const {
   parseMultiLine,
   parseCondition,
   looksLikeSetName,
+  isRarityLine,
+  isSoldByLine,
+  parseConditionLine,
+  parseExtendedMultiLineBlock,
 } = require('../src/parser');
 
 // ── parseCondition ────────────────────────────────────────────
@@ -52,6 +56,10 @@ describe('looksLikeSetName', () => {
     ['Japanese',                    false],
     ['42',                          false],
     ['',                            false],
+    ['Rarity: M',                   false],
+    ['Rarity: R',                   false],
+    ['Condition: Near Mint',        false],
+    ['Sold by SomeSeller',          false],
   ])('"%s" → %s', (input, expected) => {
     expect(looksLikeSetName(input)).toBe(expected);
   });
@@ -120,6 +128,146 @@ describe('parseMultiLine', () => {
   });
 });
 
+// ── isRarityLine ──────────────────────────────────────────────
+describe('isRarityLine', () => {
+  test.each([
+    ['Rarity: M',   true],
+    ['Rarity: R',   true],
+    ['rarity: C',   true],
+    ['Dominaria',   false],
+    ['Near Mint',   false],
+    ['',            false],
+  ])('"%s" → %s', (input, expected) => {
+    expect(isRarityLine(input)).toBe(expected);
+  });
+});
+
+// ── isSoldByLine ──────────────────────────────────────────────
+describe('isSoldByLine', () => {
+  test.each([
+    ['Sold by SomeSeller',  true],
+    ['sold by another',     true],
+    ['Sold',                false],
+    ['Dominaria',           false],
+    ['',                    false],
+  ])('"%s" → %s', (input, expected) => {
+    expect(isSoldByLine(input)).toBe(expected);
+  });
+});
+
+// ── parseConditionLine ────────────────────────────────────────
+describe('parseConditionLine', () => {
+  test('parses condition, price, and quantity separated by tabs', () => {
+    expect(parseConditionLine('Condition: Lightly Played\t$10.59\t1'))
+      .toEqual({ condition: 'Lightly Played', foil: false, quantity: 1 });
+  });
+
+  test('parses Near Mint with quantity > 1', () => {
+    expect(parseConditionLine('Condition: Near Mint\t$6.28\t3'))
+      .toEqual({ condition: 'Near Mint', foil: false, quantity: 3 });
+  });
+
+  test('parses condition separated by spaces', () => {
+    expect(parseConditionLine('Condition: Near Mint $6.28 1'))
+      .toEqual({ condition: 'Near Mint', foil: false, quantity: 1 });
+  });
+
+  test('returns null for a plain card name line', () => {
+    expect(parseConditionLine('Black Lotus')).toBeNull();
+  });
+
+  test('returns null for a set name line', () => {
+    expect(parseConditionLine('Limited Edition Alpha')).toBeNull();
+  });
+
+  test('returns null for a rarity line', () => {
+    expect(parseConditionLine('Rarity: M')).toBeNull();
+  });
+});
+
+// ── parseExtendedMultiLineBlock ───────────────────────────────
+describe('parseExtendedMultiLineBlock', () => {
+  test('parses card / set / rarity / condition block', () => {
+    const lines = [
+      'Summon: Knights of Round',
+      'FINAL FANTASY',
+      'Rarity: M',
+      'Condition: Lightly Played\t$10.59\t1',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.card).toEqual({
+      quantity: 1,
+      name: 'Summon: Knights of Round',
+      setName: 'FINAL FANTASY',
+      condition: 'Lightly Played',
+      foil: false,
+    });
+    expect(result.consumed).toBe(4);
+  });
+
+  test('parses block with "Commander:" prefixed set name', () => {
+    const lines = [
+      "Teval's Judgment",
+      'Commander: Tarkir: Dragonstorm',
+      'Rarity: R',
+      'Condition: Near Mint\t$6.28\t1',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.card).toMatchObject({
+      name: "Teval's Judgment",
+      setName: 'Commander: Tarkir: Dragonstorm',
+      condition: 'Near Mint',
+      quantity: 1,
+    });
+  });
+
+  test('skips "Sold by" line after condition', () => {
+    const lines = [
+      'Black Lotus',
+      'Limited Edition Alpha',
+      'Rarity: M',
+      'Condition: Near Mint\t$500.00\t1',
+      'Sold by TopSeller',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.consumed).toBe(5);
+    expect(result.card.name).toBe('Black Lotus');
+  });
+
+  test('works without a rarity line', () => {
+    const lines = [
+      'Forest',
+      'Core Set 2021',
+      'Condition: Near Mint\t$0.25\t4',
+    ];
+    const result = parseExtendedMultiLineBlock(lines, 0);
+    expect(result).not.toBeNull();
+    expect(result.card).toMatchObject({ name: 'Forest', quantity: 4 });
+    expect(result.consumed).toBe(3);
+  });
+
+  test('returns null when there is no condition line', () => {
+    const lines = [
+      'Black Lotus',
+      'Limited Edition Alpha',
+      'Rarity: M',
+    ];
+    expect(parseExtendedMultiLineBlock(lines, 0)).toBeNull();
+  });
+
+  test('returns null when set line looks like a condition', () => {
+    const lines = [
+      'Black Lotus',
+      'Near Mint',
+      'Condition: Near Mint\t$500.00\t1',
+    ];
+    expect(parseExtendedMultiLineBlock(lines, 0)).toBeNull();
+  });
+});
+
 // ── parseLines (integration) ──────────────────────────────────
 describe('parseLines', () => {
   test('parses a mixed-format block', () => {
@@ -148,6 +296,51 @@ Elvish Mystic [Magic 2015 Core Set]
     const cards = parseLines(text);
     expect(cards).toHaveLength(1);
     expect(cards[0].name).toBe('Forest');
+  });
+
+  test('parses extended multi-line block format (problem statement examples)', () => {
+    const text = [
+      'Summon: Knights of Round',
+      'FINAL FANTASY',
+      'Rarity: M',
+      'Condition: Lightly Played\t$10.59\t1',
+      '',
+      "Teval's Judgment",
+      'Commander: Tarkir: Dragonstorm',
+      'Rarity: R',
+      'Condition: Near Mint\t$6.28\t1',
+    ].join('\n');
+
+    const cards = parseLines(text);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toEqual({
+      quantity: 1,
+      name: 'Summon: Knights of Round',
+      setName: 'FINAL FANTASY',
+      condition: 'Lightly Played',
+      foil: false,
+    });
+    expect(cards[1]).toEqual({
+      quantity: 1,
+      name: "Teval's Judgment",
+      setName: 'Commander: Tarkir: Dragonstorm',
+      condition: 'Near Mint',
+      foil: false,
+    });
+  });
+
+  test('parses extended multi-line block with Sold by line', () => {
+    const text = [
+      'Black Lotus',
+      'Limited Edition Alpha',
+      'Rarity: M',
+      'Condition: Near Mint\t$500.00\t1',
+      'Sold by TopSeller',
+    ].join('\n');
+
+    const cards = parseLines(text);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ name: 'Black Lotus', condition: 'Near Mint', quantity: 1 });
   });
 
   test('returns empty array for empty input', () => {

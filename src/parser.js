@@ -13,6 +13,12 @@
  * And a two-line block format (card name / set name on consecutive lines):
  *   Card Name
  *   Set Name
+ * And an extended multi-line block format:
+ *   Card Name
+ *   Set Name
+ *   Rarity: X           (optional, ignored)
+ *   Condition: X  $P  Q
+ *   Sold by ___         (optional, ignored)
  *
  * @param {string} text - Raw pasted text from a TCGPlayer order/cart/collection page.
  * @returns {{ quantity: number, name: string, setName: string, condition: string, foil: boolean }[]}
@@ -32,6 +38,14 @@ function parseLines(text) {
     if (single) {
       cards.push(single);
       i += 1;
+      continue;
+    }
+
+    // Try extended multi-line block (card / set / [rarity] / condition+price+qty / [sold by])
+    const extended = parseExtendedMultiLineBlock(lines, i);
+    if (extended) {
+      cards.push(extended.card);
+      i += extended.consumed;
       continue;
     }
 
@@ -136,6 +150,101 @@ function parseMultiLine(cardLine, setLine) {
 }
 
 /**
+ * Returns true if the line is a rarity annotation (e.g. "Rarity: M").
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isRarityLine(text) {
+  return /^Rarity:/i.test(text);
+}
+
+/**
+ * Returns true if the line is a "Sold by" annotation.
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isSoldByLine(text) {
+  return /^Sold by\b/i.test(text);
+}
+
+/**
+ * Parses a "Condition: <condition>  $<price>  <quantity>" line.
+ * Returns { condition, foil, quantity } or null if the line does not match.
+ *
+ * @param {string} text
+ * @returns {{ condition: string, foil: boolean, quantity: number } | null}
+ */
+function parseConditionLine(text) {
+  const re = /^Condition:\s+(.+?)\s+\$[\d.]+\s+(\d+)$/i;
+  const m = text.match(re);
+  if (!m) return null;
+  const { condition, foil } = parseCondition(m[1].trim());
+  const quantity = parseInt(m[2], 10);
+  return { condition, foil, quantity };
+}
+
+/**
+ * Attempts to parse an extended multi-line block:
+ *   Card Name
+ *   Set Name
+ *   Rarity: X           (optional, ignored)
+ *   Condition: X  $P  Q
+ *   Sold by ___         (optional, ignored)
+ *
+ * @param {string[]} lines     - Full array of trimmed non-empty lines
+ * @param {number}   startIdx
+ * @returns {{ card: { quantity: number, name: string, setName: string, condition: string, foil: boolean }, consumed: number } | null}
+ */
+function parseExtendedMultiLineBlock(lines, startIdx) {
+  if (startIdx + 2 >= lines.length) return null;
+
+  const cardLine = lines[startIdx];
+  const setLine = lines[startIdx + 1];
+
+  // Card line must not be a price, rarity annotation, condition line, or sold-by line
+  if (/^\$[\d.]+/.test(cardLine)) return null;
+  if (isRarityLine(cardLine)) return null;
+  if (isSoldByLine(cardLine)) return null;
+  if (parseConditionLine(cardLine)) return null;
+
+  // Set line must look like a set name and not already encode a full card entry
+  if (!looksLikeSetName(setLine)) return null;
+  if (/\[/.test(setLine)) return null;
+
+  let j = startIdx + 2;
+
+  // Skip any Rarity lines
+  while (j < lines.length && isRarityLine(lines[j])) {
+    j++;
+  }
+
+  // Expect a Condition line
+  if (j >= lines.length) return null;
+  const condData = parseConditionLine(lines[j]);
+  if (!condData) return null;
+
+  let consumed = j - startIdx + 1;
+
+  // Skip any trailing "Sold by" lines
+  while (startIdx + consumed < lines.length && isSoldByLine(lines[startIdx + consumed])) {
+    consumed++;
+  }
+
+  return {
+    card: {
+      quantity: condData.quantity,
+      name: cardLine.trim(),
+      setName: setLine.trim(),
+      condition: condData.condition,
+      foil: condData.foil,
+    },
+    consumed,
+  };
+}
+
+/**
  * Returns true when a string looks like it could be an MTG set name rather
  * than a price, condition label, or language string.
  *
@@ -148,6 +257,9 @@ function looksLikeSetName(text) {
   if (/^(Near Mint|Lightly Played|Moderately Played|Heavily Played|Damaged|NM|LP|MP|HP)\b/i.test(text)) return false;
   if (/^(English|French|German|Spanish|Italian|Portuguese|Japanese|Korean|Chinese)\b/i.test(text)) return false;
   if (/^\d+$/.test(text)) return false; // bare number
+  if (/^Rarity:/i.test(text)) return false; // rarity annotation
+  if (/^Condition:/i.test(text)) return false; // condition annotation
+  if (/^Sold by\b/i.test(text)) return false; // seller annotation
   return true;
 }
 
@@ -179,4 +291,4 @@ function parseCondition(text) {
   return { condition: 'Near Mint', foil };
 }
 
-module.exports = { parseLines, parseSingleLine, parseMultiLine, parseCondition, looksLikeSetName };
+module.exports = { parseLines, parseSingleLine, parseMultiLine, parseCondition, looksLikeSetName, isRarityLine, isSoldByLine, parseConditionLine, parseExtendedMultiLineBlock };

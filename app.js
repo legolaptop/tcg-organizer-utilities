@@ -268,6 +268,35 @@
     return bestCode;
   }
 
+  // Derives promo candidate tokens from a TCGPlayer set name that contains "promo".
+  // Example: "Buy-A-Box Promos" → tokens ["buy","a","box"]
+  //   candidates: "buyabox" (all joined), "buybox" (no single-letter words),
+  //               "buy_a_box" (underscore-joined), "buy", "a", "box" (individual).
+  // These are matched against a Scryfall printing's promo_types array.
+  function _inferPromoCandidates(setLower) {
+    if (!/promo/.test(setLower)) return [];
+    const tokens = setLower
+      .split(/[^a-z]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .filter((t) => t !== 'promo' && t !== 'promos');
+    if (tokens.length === 0) return [];
+
+    const candidates = new Set();
+    // e.g. ["buy","a","box"] → "buyabox"
+    candidates.add(tokens.join(''));
+    // join without single-letter words like "a" → "buybox"
+    const noSingleLetters = tokens.filter((t) => t.length > 1).join('');
+    if (noSingleLetters) candidates.add(noSingleLetters);
+    // underscore-joined → "buy_a_box"
+    candidates.add(tokens.join('_'));
+    // individual tokens (only multi-character to avoid false positives)
+    for (const t of tokens) {
+      if (t.length > 1) candidates.add(t);
+    }
+    return Array.from(candidates);
+  }
+
   async function convertSetName(setName, cardName) {
     const map = await loadSets();
     const normalized = setName.toLowerCase().trim();
@@ -308,6 +337,29 @@
         });
         if (res.ok) {
           const json = await res.json();
+
+          // 4a. Promo-aware matching: if the TCGPlayer set name contains "promo",
+          //     prefer a printing where card.promo === true and one of its
+          //     promo_types matches a candidate derived from the set name tokens.
+          //     Example: "Buy-A-Box Promos" → candidate "buyabox" matches
+          //     promo_types ["buyabox"], returning e.g. "BLC".
+          const promoCandidates = _inferPromoCandidates(normalized);
+          if (promoCandidates.length > 0) {
+            for (const card of json.data) {
+              if (!card.promo) continue;
+              const types = (card.promo_types || []).map((t) => t.toLowerCase());
+              for (const pc of promoCandidates) {
+                if (
+                  types.includes(pc) ||
+                  types.some((t) => t.includes(pc) || pc.includes(t))
+                ) {
+                  return card.set.toUpperCase();
+                }
+              }
+            }
+          }
+
+          // 4b. Fallback: match by set_name as before
           for (const card of json.data) {
             const printSetName = card.set_name.toLowerCase().trim();
             if (

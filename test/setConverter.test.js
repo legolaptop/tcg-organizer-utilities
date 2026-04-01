@@ -15,7 +15,7 @@ global.fetch = jest.fn().mockResolvedValue({
   json: async () => ({ data: mockSets }),
 });
 
-const { loadSets, convertSetName, clearCache } = require('../src/setConverter');
+const { loadSets, convertSetName, clearCache, _inferPromoCandidates } = require('../src/setConverter');
 
 beforeEach(() => {
   clearCache();
@@ -163,5 +163,103 @@ describe('convertSetName – card prints fallback', () => {
       .mockResolvedValueOnce({ ok: false, status: 404 });
     const result = await convertSetName('Nonexistent Set XYZ', 'Lightning Bolt');
     expect(result).toBe('Nonexistent Set XYZ');
+  });
+});
+
+describe('_inferPromoCandidates', () => {
+  test('returns empty array when "promo" is not in the string', () => {
+    expect(_inferPromoCandidates('bloomburrow commander')).toEqual([]);
+  });
+
+  test('"buy-a-box promos" produces "buyabox" candidate', () => {
+    const candidates = _inferPromoCandidates('buy-a-box promos');
+    expect(candidates).toContain('buyabox');
+  });
+
+  test('"buy-a-box promos" produces "buybox" (no single-letter words)', () => {
+    const candidates = _inferPromoCandidates('buy-a-box promos');
+    expect(candidates).toContain('buybox');
+  });
+
+  test('"buy-a-box promos" produces underscore variant "buy_a_box"', () => {
+    const candidates = _inferPromoCandidates('buy-a-box promos');
+    expect(candidates).toContain('buy_a_box');
+  });
+
+  test('"buy-a-box promos" includes individual token "buy"', () => {
+    const candidates = _inferPromoCandidates('buy-a-box promos');
+    expect(candidates).toContain('buy');
+    // single-letter tokens are excluded to prevent false-positive substring matches
+    expect(candidates).not.toContain('a');
+  });
+
+  test('"promo" alone returns empty array (no non-promo tokens)', () => {
+    expect(_inferPromoCandidates('promo')).toEqual([]);
+  });
+
+  test('"promos" alone returns empty array (no non-promo tokens)', () => {
+    expect(_inferPromoCandidates('promos')).toEqual([]);
+  });
+});
+
+describe('convertSetName – promo detection', () => {
+  test('"Buy-A-Box Promos" with card "Flubs, The Fool" resolves via promo_types to "BLC"', async () => {
+    const mockPrints = {
+      data: [
+        // A non-promo printing in a different set
+        { set: 'blb', set_name: 'Bloomburrow', promo: false, promo_types: [] },
+        // The buy-a-box promo printing belonging to Bloomburrow Commander
+        { set: 'blc', set_name: 'Bloomburrow Commander', promo: true, promo_types: ['buyabox'] },
+      ],
+    };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });
+    const result = await convertSetName('Buy-A-Box Promos', 'Flubs, The Fool');
+    expect(result).toBe('BLC');
+  });
+
+  test('promo detection is case-insensitive on the input set name', async () => {
+    const mockPrints = {
+      data: [
+        { set: 'blc', set_name: 'Bloomburrow Commander', promo: true, promo_types: ['buyabox'] },
+      ],
+    };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });
+    const result = await convertSetName('BUY-A-BOX PROMOS', 'Flubs, The Fool');
+    expect(result).toBe('BLC');
+  });
+
+  test('skips non-promo printings when matching promo candidates', async () => {
+    const mockPrints = {
+      data: [
+        // Only a non-promo printing exists – should fall back to set_name matching
+        { set: 'blb', set_name: 'Bloomburrow', promo: false, promo_types: [] },
+      ],
+    };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });
+    // No promo printing matches, and set_name won't match "Buy-A-Box Promos" either
+    const result = await convertSetName('Buy-A-Box Promos', 'Flubs, The Fool');
+    expect(result).toBe('Buy-A-Box Promos');
+  });
+
+  test('falls back to set_name matching when no promo printing matches', async () => {
+    const mockPrints = {
+      data: [
+        { set: 'dom', set_name: 'Dominaria', promo: false, promo_types: [] },
+        // Promo printing with a different promo_type – should not match "buyabox"
+        { set: 'neo', set_name: 'Kamigawa: Neon Dynasty', promo: true, promo_types: ['datestamped'] },
+      ],
+    };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });
+    const result = await convertSetName('Buy-A-Box Promos', 'Test Card');
+    // No promo match (datestamped ≠ buyabox), no set_name match → original returned
+    expect(result).toBe('Buy-A-Box Promos');
   });
 });

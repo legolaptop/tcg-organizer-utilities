@@ -18,15 +18,21 @@ function stripTags(html) {
 }
 
 /**
- * Parse a TCGPlayer order-history HTML table into an array of card items.
+ * Returns true when the HTML snippet contains a full-refund alert for the
+ * corresponding order (indicated by data-aid="div-sellerorderwidget-singlerefund").
  *
- * Accepts the raw HTML string of an order page (or the full .mht/.mhtml body).
- * Locates rows inside <table class="orderTable"> elements, iterates each tbody
- * <tr>, and extracts per-card details using the well-known TCGPlayer column
- * structure (orderHistoryItems, orderHistoryDetail, orderHistoryPrice,
- * orderHistoryQuantity).
+ * @param {string} html
+ * @returns {boolean}
+ */
+function isFullyRefunded(html) {
+  return /data-aid=['"]div-sellerorderwidget-singlerefund['"]/i.test(html);
+}
+
+/**
+ * Parse the <tr> rows within a single HTML fragment and return card items.
+ * Only rows containing an orderHistoryItems cell are processed.
  *
- * @param {string} htmlText - Raw HTML string.
+ * @param {string} tableHtml
  * @returns {Array<{
  *   tcgplayerId: string|null,
  *   title: string|null,
@@ -39,16 +45,14 @@ function stripTags(html) {
  *   rarity: string|null
  * }>}
  */
-function parseOrderTableHtml(htmlText) {
-  if (!htmlText) return [];
-
+function parseRowsFromHtml(tableHtml) {
   const items = [];
 
   // Match each <tr> block; skip header rows by requiring an orderHistoryItems cell.
   const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
   let trMatch;
 
-  while ((trMatch = trRegex.exec(htmlText)) !== null) {
+  while ((trMatch = trRegex.exec(tableHtml)) !== null) {
     const rowHtml = trMatch[1];
 
     // Only process data rows that contain the items cell class.
@@ -155,4 +159,63 @@ function parseOrderTableHtml(htmlText) {
   return items;
 }
 
-module.exports = { parseOrderTableHtml };
+/**
+ * Parse a TCGPlayer order-history HTML page into an array of card items.
+ *
+ * Accepts the raw HTML string of an order page (or the full .mht/.mhtml body).
+ * Locates each <table class="orderTable"> element and checks whether the HTML
+ * immediately preceding it contains a full-refund alert; if so, that order is
+ * skipped entirely. For each non-refunded order table the per-card details are
+ * extracted from the well-known TCGPlayer column structure (orderHistoryItems,
+ * orderHistoryDetail, orderHistoryPrice, orderHistoryQuantity).
+ *
+ * Cards from different orders are never combined: each order row is returned
+ * as its own item so that per-order purchase prices are preserved.
+ *
+ * Falls back to searching all <tr> elements in the input when no
+ * <table class="orderTable"> wrappers are found (supports bare HTML snippets).
+ *
+ * @param {string} htmlText - Raw HTML string.
+ * @returns {Array<{
+ *   tcgplayerId: string|null,
+ *   title: string|null,
+ *   setName: string|null,
+ *   quantity: number,
+ *   condition: string|null,
+ *   foil: boolean,
+ *   unitPrice: number|null,
+ *   totalPrice: number|null,
+ *   rarity: string|null
+ * }>}
+ */
+function parseOrderTableHtml(htmlText) {
+  if (!htmlText) return [];
+
+  const items = [];
+
+  // Find each <table class="orderTable"> block.  For each one, inspect the
+  // HTML that precedes it (since the last table) for a full-refund alert and
+  // skip the table if found.
+  const tableRegex = /<table\b[^>]*class="orderTable"[^>]*>([\s\S]*?)<\/table>/gi;
+  let tableMatch;
+  let foundTable = false;
+  let lastEnd = 0;
+
+  while ((tableMatch = tableRegex.exec(htmlText)) !== null) {
+    foundTable = true;
+    const precedingHtml = htmlText.slice(lastEnd, tableMatch.index);
+    lastEnd = tableMatch.index + tableMatch[0].length;
+
+    if (isFullyRefunded(precedingHtml)) continue;
+
+    items.push(...parseRowsFromHtml(tableMatch[1]));
+  }
+
+  if (foundTable) return items;
+
+  // Fallback: no <table class="orderTable"> wrappers found; search all <tr>
+  // elements directly (supports bare HTML snippets used in tests and edge cases).
+  return parseRowsFromHtml(htmlText);
+}
+
+module.exports = { parseOrderTableHtml, isFullyRefunded };

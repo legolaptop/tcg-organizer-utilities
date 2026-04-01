@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseOrderTableHtml } = require('../src/htmlParser');
+const { parseOrderTableHtml, isFullyRefunded } = require('../src/htmlParser');
 
 // Sample HTML extracted from a TCGPlayer order-history .mht file.
 const SAMPLE_HTML = `
@@ -198,5 +198,104 @@ describe('parseOrderTableHtml', () => {
       expect(result.quantity).toBe(4);
       expect(result.totalPrice).toBe(10.0);
     });
+  });
+});
+
+// ── Refund detection tests ─────────────────────────────────────────────────
+
+// Helpers for building consistent test HTML
+function makeOrderAlertHtml(dataAid) {
+  return `<div class="orderAlert yellow" data-aid="${dataAid}">
+    <b>A full refund</b> was issued on March 31, 2026 for the amount of $7.01.
+    <a href="https://store.tcgplayer.com/myaccount/messagecenter?refundId=8021693">(Details)</a>
+  </div>`;
+}
+
+function makeOrderTableHtml(tcgplayerId, title, setName, price) {
+  return `<table class="orderTable" data-aid="tbl-sellerorderwidget-ordertable">
+    <thead>
+      <tr>
+        <th class="orderHistoryItems">ITEMS</th>
+        <th class="orderHistoryDetail">DETAILS</th>
+        <th class="orderHistoryPrice">PRICE</th>
+        <th class="orderHistoryQuantity">QUANTITY</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="trOdd">
+        <td class="orderHistoryItems">
+          <img data-original="https://tcgplayer-cdn.tcgplayer.com/product/${tcgplayerId}_25w.jpg" width="21" class="orderThumbnail lazy">
+          <span style="display: block; padding-left: 30px;">
+            <a class="nocontext" href="https://store.tcgplayer.com/magic/test/${title.toLowerCase().replace(/ /g, '-')}" title="${title}" target="_blank">${title}</a><br>
+            ${setName}
+          </span>
+        </td>
+        <td class="orderHistoryDetail">Rarity: R<br>Condition: Near Mint</td>
+        <td class="orderHistoryPrice" style="vertical-align:middle;">${price}</td>
+        <td class="orderHistoryQuantity" style="vertical-align:middle;">1</td>
+      </tr>
+    </tbody>
+  </table>`;
+}
+
+describe('isFullyRefunded', () => {
+  test('returns true for double-quoted singlerefund data-aid', () => {
+    expect(isFullyRefunded(makeOrderAlertHtml('div-sellerorderwidget-singlerefund'))).toBe(true);
+  });
+
+  test('returns true for single-quoted singlerefund data-aid', () => {
+    expect(isFullyRefunded(`<div data-aid='div-sellerorderwidget-singlerefund'></div>`)).toBe(true);
+  });
+
+  test('returns false for an empty string', () => {
+    expect(isFullyRefunded('')).toBe(false);
+  });
+
+  test('returns false for a partial-refund data-aid', () => {
+    expect(isFullyRefunded(makeOrderAlertHtml('div-sellerorderwidget-partialrefund'))).toBe(false);
+  });
+
+  test('returns false for HTML with no refund alert', () => {
+    expect(isFullyRefunded('<p>Some other content</p>')).toBe(false);
+  });
+});
+
+describe('parseOrderTableHtml – refund handling', () => {
+  test('skips a fully refunded order table', () => {
+    const html = makeOrderAlertHtml('div-sellerorderwidget-singlerefund') +
+      makeOrderTableHtml('526243', 'Broadside Bombardiers (Extended Art)', 'Commander: The Lost Caverns of Ixalan', '$6.45');
+    expect(parseOrderTableHtml(html)).toHaveLength(0);
+  });
+
+  test('includes a non-refunded order table', () => {
+    const html = makeOrderTableHtml('552718', 'Cranial Ram', 'Modern Horizons 3', '$0.25');
+    const result = parseOrderTableHtml(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].tcgplayerId).toBe('552718');
+  });
+
+  test('returns only items from non-refunded orders when orders are mixed', () => {
+    // First order: fully refunded
+    const refundedOrder =
+      makeOrderAlertHtml('div-sellerorderwidget-singlerefund') +
+      makeOrderTableHtml('526243', 'Broadside Bombardiers (Extended Art)', 'Commander: The Lost Caverns of Ixalan', '$6.45');
+    // Second order: not refunded
+    const validOrder = makeOrderTableHtml('552718', 'Cranial Ram', 'Modern Horizons 3', '$0.25');
+
+    const result = parseOrderTableHtml(refundedOrder + validOrder);
+    expect(result).toHaveLength(1);
+    expect(result[0].tcgplayerId).toBe('552718');
+    expect(result[0].unitPrice).toBe(0.25);
+  });
+
+  test('does not combine identical cards from two non-refunded orders', () => {
+    // Same tcgplayerId appearing in two separate orders at different prices.
+    const order1 = makeOrderTableHtml('552718', 'Cranial Ram', 'Modern Horizons 3', '$0.25');
+    const order2 = makeOrderTableHtml('552718', 'Cranial Ram', 'Modern Horizons 3', '$0.30');
+
+    const result = parseOrderTableHtml(order1 + order2);
+    expect(result).toHaveLength(2);
+    expect(result[0].unitPrice).toBe(0.25);
+    expect(result[1].unitPrice).toBe(0.30);
   });
 });

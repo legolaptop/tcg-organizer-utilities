@@ -54,17 +54,47 @@ async function loadSets() {
 }
 
 /**
+ * Attempts exact and partial matching of a candidate string against the set map.
+ *
+ * @param {Map<string, string>} map
+ * @param {string} candidate - Already lowercased candidate string.
+ * @returns {string|null} Uppercase set code, or null if not found.
+ */
+function _matchCandidate(map, candidate) {
+  if (map.has(candidate)) {
+    return map.get(candidate);
+  }
+  let bestCode = null;
+  let bestLen = 0;
+  for (const [name, code] of map) {
+    if (
+      (candidate.includes(name) || name.includes(candidate)) &&
+      name.length > bestLen
+    ) {
+      bestCode = code;
+      bestLen = name.length;
+    }
+  }
+  return bestCode;
+}
+
+/**
  * Converts a set name string to its set code abbreviation.
  * Resolution order:
  *   1. Exact case-insensitive match  (e.g. "Dominaria"  → "DOM")
- *   2. Input is substring of a set name (e.g. "Core 2021" matches "Core Set 2021")
- *   3. A set name is a substring of the input
- *   4. Returns the original string unchanged if no match is found
+ *   2. Commander format heuristics – when setName contains "Commander:",
+ *      transforms "Commander: NAME" into "NAME Commander" variants and tries
+ *      exact/partial matching before falling back to general partial matching.
+ *   3. Partial substring match (e.g. "Core 2021" matches "Core Set 2021")
+ *   4. Scryfall card prints lookup (only when cardName is provided) –
+ *      fetches all printings of the card and matches set names.
+ *   5. Returns the original string unchanged if no match is found.
  *
  * @param {string} setName
+ * @param {string} [cardName] - Optional card name used for the Scryfall prints fallback.
  * @returns {Promise<string>} Uppercase set code, or original setName if not found.
  */
-async function convertSetName(setName) {
+async function convertSetName(setName, cardName) {
   const map = await loadSets();
   const normalized = setName.toLowerCase().trim();
 
@@ -73,21 +103,55 @@ async function convertSetName(setName) {
     return map.get(normalized);
   }
 
-  // 2 & 3. Partial match – prefer longer set names to reduce false positives
-  let bestCode = null;
-  let bestLen = 0;
-  for (const [name, code] of map) {
-    if (
-      (normalized.includes(name) || name.includes(normalized)) &&
-      name.length > bestLen
-    ) {
-      bestCode = code;
-      bestLen = name.length;
+  // 2. Commander format heuristics (runs before general partial matching to avoid
+  //    matching the base set instead of the Commander variant)
+  if (/^commander:/i.test(setName)) {
+    const colonIdx = setName.indexOf(':');
+    const nameAfterCommander = setName.slice(colonIdx + 1).trim();
+    if (nameAfterCommander) {
+      const candidates = [
+        `${nameAfterCommander} Commander`.toLowerCase(),
+        `${nameAfterCommander.replace(/[^a-z0-9 ]/gi, ' ').replace(/  +/g, ' ').trim()} Commander`.toLowerCase(),
+      ];
+      for (const candidate of candidates) {
+        const code = _matchCandidate(map, candidate);
+        if (code) return code;
+      }
     }
   }
-  if (bestCode) return bestCode;
 
-  // 4. No match – return original value
+  // 3. Partial match – prefer longer set names to reduce false positives
+  const partialCode = _matchCandidate(map, normalized);
+  if (partialCode) return partialCode;
+
+  // 4. Scryfall card prints lookup
+  if (cardName) {
+    try {
+      const encodedQuery = encodeURIComponent(`!"${cardName}"`);
+      const url = `https://api.scryfall.com/cards/search?q=${encodedQuery}&unique=prints`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'tcg-organizer-utilities/1.0' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        for (const card of json.data) {
+          const printSetName = card.set_name.toLowerCase().trim();
+          if (
+            printSetName === normalized ||
+            normalized.includes(printSetName) ||
+            printSetName.includes(normalized)
+          ) {
+            return card.set.toUpperCase();
+          }
+        }
+      }
+    } catch {
+      // Scryfall unreachable or card not found – fall through
+    }
+  }
+
+  // 5. No match – return original value
   return setName;
 }
 

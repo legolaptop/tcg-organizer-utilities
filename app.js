@@ -786,34 +786,29 @@
   }
 
   /**
-   * Parse a TCGPlayer order-history HTML table into an array of card items.
+   * Returns true when the HTML snippet contains a full-refund alert for the
+   * corresponding order (indicated by data-aid="div-sellerorderwidget-singlerefund").
    *
-   * Accepts the raw HTML string of an order page (or full .mht/.mhtml body).
-   * Locates rows inside <table class="orderTable"> elements and extracts
-   * per-card details from the orderHistoryItems, orderHistoryDetail,
-   * orderHistoryPrice, and orderHistoryQuantity cells.
-   *
-   * @param {string} htmlText - Raw HTML string.
-   * @returns {Array<{
-   *   tcgplayerId: string|null,
-   *   title: string|null,
-   *   setName: string|null,
-   *   quantity: number,
-   *   condition: string|null,
-   *   foil: boolean,
-   *   unitPrice: number|null,
-   *   totalPrice: number|null,
-   *   rarity: string|null
-   * }>}
+   * @param {string} html
+   * @returns {boolean}
    */
-  function parseOrderTableHtml(htmlText) {
-    if (!htmlText) return [];
+  function isFullyRefunded(html) {
+    return /data-aid=['"]div-sellerorderwidget-singlerefund['"]/i.test(html);
+  }
 
+  /**
+   * Parse the <tr> rows within a single HTML fragment and return card items.
+   * Only rows containing an orderHistoryItems cell are processed.
+   *
+   * @param {string} tableHtml
+   * @returns {Array<object>}
+   */
+  function parseRowsFromHtml(tableHtml) {
     const items = [];
     const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
     let trMatch;
 
-    while ((trMatch = trRegex.exec(htmlText)) !== null) {
+    while ((trMatch = trRegex.exec(tableHtml)) !== null) {
       const rowHtml = trMatch[1];
       if (!rowHtml.includes('orderHistoryItems')) continue;
 
@@ -914,6 +909,59 @@
   }
 
   /**
+   * Parse a TCGPlayer order-history HTML page into an array of card items.
+   *
+   * Finds each <table class="orderTable"> block and checks whether the HTML
+   * immediately preceding it contains a full-refund alert; if so, that order
+   * is skipped entirely. Cards from different orders are never combined so
+   * that per-order purchase prices are preserved.
+   *
+   * Falls back to searching all <tr> elements when no orderTable wrappers
+   * are present.
+   *
+   * @param {string} htmlText - Raw HTML string.
+   * @returns {Array<{
+   *   tcgplayerId: string|null,
+   *   title: string|null,
+   *   setName: string|null,
+   *   quantity: number,
+   *   condition: string|null,
+   *   foil: boolean,
+   *   unitPrice: number|null,
+   *   totalPrice: number|null,
+   *   rarity: string|null
+   * }>}
+   */
+  function parseOrderTableHtml(htmlText) {
+    if (!htmlText) return [];
+
+    const items = [];
+
+    // Find each <table class="orderTable"> block and check whether its
+    // preceding HTML contains a full-refund alert before parsing its rows.
+    const tableRegex = /<table\b[^>]*class="orderTable"[^>]*>([\s\S]*?)<\/table>/gi;
+    let tableMatch;
+    let foundTable = false;
+    let lastEnd = 0;
+
+    while ((tableMatch = tableRegex.exec(htmlText)) !== null) {
+      foundTable = true;
+      const precedingHtml = htmlText.slice(lastEnd, tableMatch.index);
+      lastEnd = tableMatch.index + tableMatch[0].length;
+
+      if (isFullyRefunded(precedingHtml)) continue;
+
+      items.push(...parseRowsFromHtml(tableMatch[1]));
+    }
+
+    if (foundTable) return items;
+
+    // Fallback: no <table class="orderTable"> wrappers found; search all <tr>
+    // elements directly.
+    return parseRowsFromHtml(htmlText);
+  }
+
+  /**
    * Extract TCGPlayer product IDs from file text content.
    * Returns Map<id, count>.
    */
@@ -1008,68 +1056,53 @@
 
       const texts = await Promise.all(reads);
 
-      const globalCounts = new Map();
-      /** @type {Map<string, {quantity:number,condition:string|null,foil:boolean,unitPrice:number|null,rarity:string|null}>} */
-      const itemDetailsById = new Map();
+      /** @type {Array<{tcgplayerId:string,quantity:number,condition:string|null,foil:boolean,unitPrice:number|null,rarity:string|null}>} */
+      const allItems = [];
+      const tcgplayerIds = new Set();
 
       for (const t of texts) {
         const parsedItems = parseOrderTableHtml(t);
         if (parsedItems.length > 0) {
-          // Use rich per-row data from order-history HTML.
+          // Keep each order-row as its own entry so per-order purchase prices
+          // are preserved and cards from different orders are never merged.
           for (const item of parsedItems) {
             if (!item.tcgplayerId) continue;
-            globalCounts.set(item.tcgplayerId, (globalCounts.get(item.tcgplayerId) || 0) + item.quantity);
-            if (itemDetailsById.has(item.tcgplayerId)) {
-              const existing = itemDetailsById.get(item.tcgplayerId);
-              existing.quantity += item.quantity;
-              if (existing.condition === null && item.condition !== null) existing.condition = item.condition;
-              if (existing.unitPrice === null && item.unitPrice !== null) existing.unitPrice = item.unitPrice;
-              if (existing.rarity === null && item.rarity !== null) existing.rarity = item.rarity;
-              // foil: first-seen value is kept; TCGPlayer assigns distinct product ids
-              // to foil vs non-foil variants so mixed foil rows for the same id are rare.
-            } else {
-              itemDetailsById.set(item.tcgplayerId, {
-                quantity: item.quantity,
-                condition: item.condition,
-                foil: item.foil,
-                unitPrice: item.unitPrice,
-                rarity: item.rarity,
-              });
-            }
+            allItems.push(item);
+            tcgplayerIds.add(item.tcgplayerId);
           }
         } else {
           // Fallback: extract product ids by regex when no order-table HTML found.
           const map = extractTcgplayerIdsFromText(t);
           for (const [id, cnt] of map.entries()) {
-            globalCounts.set(id, (globalCounts.get(id) || 0) + cnt);
+            allItems.push({ tcgplayerId: id, quantity: cnt, condition: null, foil: false, unitPrice: null, rarity: null });
+            tcgplayerIds.add(id);
           }
         }
       }
 
-      if (globalCounts.size === 0) {
+      if (tcgplayerIds.size === 0) {
         showError('No TCGPlayer product links could be found in the uploaded files.');
         return;
       }
 
-      const ids = Array.from(globalCounts.keys());
+      const ids = Array.from(tcgplayerIds);
       const scryMap = await fetchAllScryfall(ids);
 
       const cards = [];
-      for (const id of ids) {
-        const scry = scryMap.get(id);
+      for (const item of allItems) {
+        const scry = scryMap.get(item.tcgplayerId);
         if (!scry) continue;
-        const details = itemDetailsById.get(id);
         cards.push({
           name: scry.name,
           setCode: scry.setCode || '',
           setName: scry.setName || '',
           collectorNumber: scry.collectorNumber || '',
-          foil: details ? details.foil : false,
-          rarity: details && details.rarity ? details.rarity : (scry.rarity || ''),
-          quantity: details ? details.quantity : (globalCounts.get(id) || 1),
+          foil: item.foil,
+          rarity: item.rarity ? item.rarity : (scry.rarity || ''),
+          quantity: item.quantity,
           scryfallId: scry.scryfallId || '',
-          price: details ? details.unitPrice : undefined,
-          condition: details && details.condition ? details.condition : 'Near Mint',
+          price: item.unitPrice != null ? item.unitPrice : undefined,
+          condition: item.condition ? item.condition : 'Near Mint',
         });
       }
 
@@ -1081,7 +1114,7 @@
       const csv = formatToCSV(cards);
       csvOutput.value = csv;
       const total = cards.reduce((sum, c) => sum + c.quantity, 0);
-      cardCount.textContent = `${cards.length} unique card${cards.length !== 1 ? 's' : ''} · ${total} total cop${total !== 1 ? 'ies' : 'y'}`;
+      cardCount.textContent = `${cards.length} card${cards.length !== 1 ? 's' : ''} · ${total} total cop${total !== 1 ? 'ies' : 'y'}`;
       outputSection.hidden = false;
       outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) {

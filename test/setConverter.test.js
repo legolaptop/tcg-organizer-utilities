@@ -85,3 +85,83 @@ describe('convertSetName', () => {
     expect(result).toBe('DOM');
   });
 });
+
+describe('convertSetName – Commander heuristics', () => {
+  test('"Commander: Bloomburrow" resolves to "BLC"', async () => {
+    const result = await convertSetName('Commander: Bloomburrow');
+    expect(result).toBe('BLC');
+  });
+
+  test('"Commander: Foundations" resolves to "FDC"', async () => {
+    const result = await convertSetName('Commander: Foundations');
+    expect(result).toBe('FDC');
+  });
+
+  test('"Commander: Murders at Karlov Manor" resolves to "MKC"', async () => {
+    const result = await convertSetName('Commander: Murders at Karlov Manor');
+    expect(result).toBe('MKC');
+  });
+
+  test('returns original string when Commander heuristic finds no match', async () => {
+    const result = await convertSetName('Commander: Nonexistent Place');
+    expect(result).toBe('Commander: Nonexistent Place');
+  });
+});
+
+describe('convertSetName – card prints fallback', () => {
+  test('resolves set via Scryfall card prints when no map match', async () => {
+    const mockPrints = {
+      data: [
+        { set: 'dom', set_name: 'Dominaria' },
+        { set: 'xyz', set_name: 'Totally Obscure Set Name' },
+      ],
+    };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })  // sets
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });            // prints
+    const result = await convertSetName('Totally Obscure Set Name', 'Lightning Bolt');
+    expect(result).toBe('XYZ');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('api.scryfall.com/cards/search'),
+      expect.any(Object)
+    );
+  });
+
+  test('card prints URL encodes the card name with exact-match operator', async () => {
+    const mockPrints = { data: [] };
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => mockPrints });
+    await convertSetName('Unknown Set', 'Sol Ring');
+    const printsCall = global.fetch.mock.calls.find((args) =>
+      args[0].includes('cards/search')
+    );
+    expect(printsCall).toBeDefined();
+    expect(printsCall[0]).toContain('unique=prints');
+    expect(printsCall[0]).toContain(encodeURIComponent('!"Sol Ring"'));
+  });
+
+  test('does not query card prints when cardName is omitted', async () => {
+    const result = await convertSetName('Nonexistent Set XYZ');
+    // Only the sets endpoint should be called
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledWith('https://api.scryfall.com/sets', expect.any(Object));
+    expect(result).toBe('Nonexistent Set XYZ');
+  });
+
+  test('falls back gracefully when card prints fetch fails', async () => {
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockRejectedValueOnce(new Error('Network error'));
+    const result = await convertSetName('Nonexistent Set XYZ', 'Lightning Bolt');
+    expect(result).toBe('Nonexistent Set XYZ');
+  });
+
+  test('falls back gracefully when card prints returns non-ok status', async () => {
+    global.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: mockSets }) })
+      .mockResolvedValueOnce({ ok: false, status: 404 });
+    const result = await convertSetName('Nonexistent Set XYZ', 'Lightning Bolt');
+    expect(result).toBe('Nonexistent Set XYZ');
+  });
+});

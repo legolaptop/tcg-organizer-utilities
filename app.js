@@ -250,27 +250,81 @@
     return _setsCache;
   }
 
-  async function convertSetName(setName) {
-    const map = await loadSets();
-    const normalized = setName.toLowerCase().trim();
-
-    if (map.has(normalized)) {
-      return map.get(normalized);
+  function _matchCandidate(map, candidate) {
+    if (map.has(candidate)) {
+      return map.get(candidate);
     }
-
     let bestCode = null;
     let bestLen = 0;
     for (const [name, code] of map) {
       if (
-        (normalized.includes(name) || name.includes(normalized)) &&
+        (candidate.includes(name) || name.includes(candidate)) &&
         name.length > bestLen
       ) {
         bestCode = code;
         bestLen = name.length;
       }
     }
-    if (bestCode) return bestCode;
+    return bestCode;
+  }
 
+  async function convertSetName(setName, cardName) {
+    const map = await loadSets();
+    const normalized = setName.toLowerCase().trim();
+
+    // 1. Exact match
+    if (map.has(normalized)) {
+      return map.get(normalized);
+    }
+
+    // 2. Commander format heuristics (runs before general partial matching to avoid
+    //    matching the base set instead of the Commander variant)
+    if (/^commander:/i.test(setName)) {
+      const colonIdx = setName.indexOf(':');
+      const nameAfterCommander = setName.slice(colonIdx + 1).trim();
+      if (nameAfterCommander) {
+        const candidates = [
+          `${nameAfterCommander} Commander`.toLowerCase(),
+          `${nameAfterCommander.replace(/[^a-z0-9 ]/gi, ' ').replace(/  +/g, ' ').trim()} Commander`.toLowerCase(),
+        ];
+        for (const candidate of candidates) {
+          const code = _matchCandidate(map, candidate);
+          if (code) return code;
+        }
+      }
+    }
+
+    // 3. Partial match – prefer longer set names to reduce false positives
+    const partialCode = _matchCandidate(map, normalized);
+    if (partialCode) return partialCode;
+
+    // 4. Scryfall card prints lookup
+    if (cardName) {
+      try {
+        const encodedQuery = encodeURIComponent(`!"${cardName}"`);
+        const url = `https://api.scryfall.com/cards/search?q=${encodedQuery}&unique=prints`;
+        const res = await fetch(url, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          for (const card of json.data) {
+            const printSetName = card.set_name.toLowerCase().trim();
+            if (
+              printSetName === normalized ||
+              normalized.includes(printSetName) ||
+              printSetName.includes(normalized)
+            ) {
+              return card.set.toUpperCase();
+            }
+          }
+        }
+      } catch {
+        // Scryfall unreachable or card not found – fall through
+      }
+    }
+
+    // 5. No match – return original value
     return setName;
   }
 
@@ -596,7 +650,7 @@
       const resolved = await Promise.all(
         parsed.map(async (card) => ({
           ...card,
-          setCode: await convertSetName(card.setName),
+          setCode: await convertSetName(card.setName, card.name),
         }))
       );
 

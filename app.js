@@ -545,7 +545,7 @@
   }
 
   function formatToCSV(cards) {
-    const header = 'Count,Name,Edition,Condition,Language,Foil,Price';
+    const header = 'Count,Name,Edition,Condition,Language,Foil,Purchase Price';
     const rows = cards.map((c) => {
       const foilValue = c.foil ? 'foil' : '';
       const priceValue = c.price != null ? c.price.toFixed(2) : '';

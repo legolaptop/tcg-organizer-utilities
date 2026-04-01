@@ -36,6 +36,12 @@
           spellcheck="false"
         ></textarea>
 
+        <p class="hint">Supported: .mht, .mhtml, .html, .htm — you can upload multiple files.</p>
+        <div class="file-upload">
+          <input id="file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple="">
+          <button id="parse-files-btn" class="btn btn-secondary">Parse uploaded files</button>
+        </div>
+
         <div class="actions">
           <button id="convert-btn" class="btn btn-primary">Convert to CSV</button>
           <button id="clear-btn" class="btn btn-secondary">Clear</button>

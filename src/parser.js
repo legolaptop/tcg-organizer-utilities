@@ -88,6 +88,7 @@ function parseSingleLine(line) {
       setName: bm[3].trim(),
       condition,
       foil,
+      cardSeller: null,
     };
   }
 
@@ -109,6 +110,7 @@ function parseSingleLine(line) {
         setName: dm[3].trim(),
         condition,
         foil,
+        cardSeller: null,
       };
     }
   }
@@ -150,6 +152,7 @@ function parseMultiLine(cardLine, setLine) {
     setName: setLine.trim(),
     condition: 'Near Mint',
     foil: false,
+    cardSeller: null,
   };
 }
 
@@ -171,6 +174,18 @@ function isRarityLine(text) {
  */
 function isSoldByLine(text) {
   return /^Sold by\b/i.test(text);
+}
+
+/**
+ * Extracts the seller name from a "Sold by <Seller>" line.
+ * Returns null if the line does not match or the seller name is empty.
+ *
+ * @param {string} text
+ * @returns {string|null}
+ */
+function parseSoldByLine(text) {
+  const m = text.match(/^Sold by\s+(.+)$/i);
+  return m ? m[1].trim() || null : null;
 }
 
 /**
@@ -231,8 +246,10 @@ function parseExtendedMultiLineBlock(lines, startIdx) {
 
   let j = setLineIdx + 1;
 
-  // Skip any "Sold by" lines (may appear before Rarity in TCGPlayer order format)
+  // Capture seller from "Sold by" lines (may appear before Rarity in TCGPlayer order format).
+  let cardSeller = null;
   while (j < lines.length && isSoldByLine(lines[j])) {
+    if (!cardSeller) cardSeller = parseSoldByLine(lines[j]);
     j++;
   }
 
@@ -248,8 +265,9 @@ function parseExtendedMultiLineBlock(lines, startIdx) {
 
   let consumed = j - startIdx + 1;
 
-  // Skip any trailing "Sold by" lines
+  // Capture seller from any trailing "Sold by" lines
   while (startIdx + consumed < lines.length && isSoldByLine(lines[startIdx + consumed])) {
+    if (!cardSeller) cardSeller = parseSoldByLine(lines[startIdx + consumed]);
     consumed++;
   }
 
@@ -261,6 +279,7 @@ function parseExtendedMultiLineBlock(lines, startIdx) {
       condition: condData.condition,
       foil: condData.foil,
       price: condData.price,
+      cardSeller,
     },
     consumed,
   };
@@ -314,4 +333,4 @@ function parseCondition(text) {
   return { condition: 'Near Mint', foil };
 }
 
-module.exports = { parseLines, parseSingleLine, parseMultiLine, parseCondition, looksLikeSetName, isRarityLine, isSoldByLine, parseConditionLine, parseExtendedMultiLineBlock };
+module.exports = { parseLines, parseSingleLine, parseMultiLine, parseCondition, looksLikeSetName, isRarityLine, isSoldByLine, parseSoldByLine, parseConditionLine, parseExtendedMultiLineBlock };

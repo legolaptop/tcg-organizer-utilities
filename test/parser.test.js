@@ -70,17 +70,17 @@ describe('looksLikeSetName', () => {
 describe('parseSingleLine', () => {
   test('bracket format with quantity and condition', () => {
     expect(parseSingleLine('1x Black Lotus [Limited Edition Alpha] Near Mint'))
-      .toEqual({ quantity: 1, name: 'Black Lotus', setName: 'Limited Edition Alpha', condition: 'Near Mint', foil: false });
+      .toEqual({ quantity: 1, name: 'Black Lotus', setName: 'Limited Edition Alpha', condition: 'Near Mint', foil: false, cardSeller: null });
   });
 
   test('bracket format with foil', () => {
     expect(parseSingleLine('2x Llanowar Elves [Dominaria] Near Mint Foil'))
-      .toEqual({ quantity: 2, name: 'Llanowar Elves', setName: 'Dominaria', condition: 'Near Mint', foil: true });
+      .toEqual({ quantity: 2, name: 'Llanowar Elves', setName: 'Dominaria', condition: 'Near Mint', foil: true, cardSeller: null });
   });
 
   test('bracket format without quantity defaults to 1', () => {
     expect(parseSingleLine('Elvish Mystic [Magic 2015 Core Set]'))
-      .toEqual({ quantity: 1, name: 'Elvish Mystic', setName: 'Magic 2015 Core Set', condition: 'Near Mint', foil: false });
+      .toEqual({ quantity: 1, name: 'Elvish Mystic', setName: 'Magic 2015 Core Set', condition: 'Near Mint', foil: false, cardSeller: null });
   });
 
   test('bracket format without quantity but with condition', () => {
@@ -90,7 +90,7 @@ describe('parseSingleLine', () => {
 
   test('dash format with quantity, set and condition', () => {
     expect(parseSingleLine('1x Llanowar Elves - Dominaria - Near Mint Foil'))
-      .toEqual({ quantity: 1, name: 'Llanowar Elves', setName: 'Dominaria', condition: 'Near Mint', foil: true });
+      .toEqual({ quantity: 1, name: 'Llanowar Elves', setName: 'Dominaria', condition: 'Near Mint', foil: true, cardSeller: null });
   });
 
   test('dash format with quantity and set only', () => {
@@ -112,7 +112,7 @@ describe('parseSingleLine', () => {
 describe('parseMultiLine', () => {
   test('card name / set name pair', () => {
     expect(parseMultiLine('Black Lotus', 'Limited Edition Alpha'))
-      .toEqual({ quantity: 1, name: 'Black Lotus', setName: 'Limited Edition Alpha', condition: 'Near Mint', foil: false });
+      .toEqual({ quantity: 1, name: 'Black Lotus', setName: 'Limited Edition Alpha', condition: 'Near Mint', foil: false, cardSeller: null });
   });
 
   test('with leading quantity on card line', () => {
@@ -208,6 +208,7 @@ describe('parseExtendedMultiLineBlock', () => {
       condition: 'Lightly Played',
       foil: false,
       price: 10.59,
+      cardSeller: null,
     });
     expect(result.consumed).toBe(4);
   });
@@ -293,6 +294,7 @@ describe('parseExtendedMultiLineBlock', () => {
       condition: 'Near Mint',
       foil: false,
       price: 1.76,
+      cardSeller: 'StevensonGames',
     });
     expect(result.consumed).toBe(6);
   });
@@ -379,6 +381,7 @@ Elvish Mystic [Magic 2015 Core Set]
       condition: 'Lightly Played',
       foil: false,
       price: 10.59,
+      cardSeller: null,
     });
     expect(cards[1]).toEqual({
       quantity: 1,
@@ -387,6 +390,7 @@ Elvish Mystic [Magic 2015 Core Set]
       condition: 'Near Mint',
       foil: false,
       price: 6.28,
+      cardSeller: null,
     });
   });
 
@@ -435,6 +439,7 @@ Elvish Mystic [Magic 2015 Core Set]
       condition: 'Near Mint',
       foil: false,
       price: 1.76,
+      cardSeller: 'StevensonGames',
     });
     expect(cards[1]).toEqual({
       quantity: 1,
@@ -443,6 +448,7 @@ Elvish Mystic [Magic 2015 Core Set]
       condition: 'Near Mint',
       foil: false,
       price: 2.51,
+      cardSeller: 'TheVaultOnline',
     });
   });
 });

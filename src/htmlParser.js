@@ -42,7 +42,8 @@ function isFullyRefunded(html) {
  *   foil: boolean,
  *   unitPrice: number|null,
  *   totalPrice: number|null,
- *   rarity: string|null
+ *   rarity: string|null,
+ *   cardSeller: string|null
  * }>}
  */
 function parseRowsFromHtml(tableHtml) {
@@ -68,6 +69,7 @@ function parseRowsFromHtml(tableHtml) {
       unitPrice: null,
       totalPrice: null,
       rarity: null,
+      cardSeller: null,
     };
 
     // ── tcgplayerId ─────────────────────────────────────────────
@@ -122,6 +124,9 @@ function parseRowsFromHtml(tableHtml) {
             cond = cond.replace(/\bfoil\b/gi, '').trim();
           }
           item.condition = cond || null;
+        } else if (/^Sold by\b/i.test(line)) {
+          const seller = line.replace(/^Sold by\s+/i, '').trim();
+          if (seller) item.cardSeller = seller;
         }
       }
     }
@@ -185,7 +190,8 @@ function parseRowsFromHtml(tableHtml) {
  *   foil: boolean,
  *   unitPrice: number|null,
  *   totalPrice: number|null,
- *   rarity: string|null
+ *   rarity: string|null,
+ *   cardSeller: string|null
  * }>}
  */
 function parseOrderTableHtml(htmlText) {
@@ -218,4 +224,4 @@ function parseOrderTableHtml(htmlText) {
   return parseRowsFromHtml(htmlText);
 }
 
-module.exports = { parseOrderTableHtml, isFullyRefunded };
+module.exports = { parseOrderTableHtml, parseRowsFromHtml, isFullyRefunded };

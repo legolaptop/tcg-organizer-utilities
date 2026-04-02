@@ -249,8 +249,8 @@ function parseOrdersFromHtml(htmlText) {
       set: item.setName || '',
       condition: item.condition || 'Near Mint',
       price: item.unitPrice != null ? item.unitPrice : 0,
-      quantity: item.quantity,
-      foil: item.foil,
+      quantity: item.quantity || 1,
+      foil: item.foil ?? false,
       // Per-card seller (Direct orders) or order-level seller (marketplace)
       cardSeller: item.cardSeller || meta.seller,
     }));

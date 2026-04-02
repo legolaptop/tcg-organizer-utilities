@@ -184,8 +184,11 @@ function isSoldByLine(text) {
  * @returns {string|null}
  */
 function parseSoldByLine(text) {
-  const m = text.match(/^Sold by\s+(.+)$/i);
-  return m ? m[1].trim() || null : null;
+  if (!isSoldByLine(text)) return null;
+  // Strip the "Sold by " prefix via a simple replace so the regex does not
+  // need a capturing group next to \s+, which can cause polynomial backtracking.
+  const seller = text.replace(/^Sold by\s+/i, '').trim();
+  return seller || null;
 }
 
 /**

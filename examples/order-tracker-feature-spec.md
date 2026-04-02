@@ -93,9 +93,11 @@ function getOrderStatus(order: Order, today: Date): OrderStatus {
 
 ---
 
-## 4. Received State (localStorage)
+## 4. Received State (Google Drive)
 
-Persist received state keyed by order ID. Also store optional per-order notes.
+Persist tracker state as a single JSON file on the user's Google Drive. This keeps state synced across devices and browsers. Use the app's existing Google OAuth flow to obtain an access token.
+
+### 4.1 State Schema
 
 ```typescript
 interface OrderState {
@@ -104,34 +106,137 @@ interface OrderState {
 }
 
 type TrackerState = Record<string, OrderState>; // keyed by order.id
+```
 
-const STORAGE_KEY = 'tcgOrderTracker';
+### 4.2 Drive File Config
 
-function loadState(): TrackerState {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  } catch {
-    return {};
+```typescript
+const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
+
+// Use 'appDataFolder' to store the file in a hidden app-specific folder
+// (not visible in the user's Drive root, cleaner UX).
+// Requires scope: https://www.googleapis.com/auth/drive.appdata
+//
+// Alternatively use 'root' if you want the file visible in Drive
+// and easier to debug. Requires scope: https://www.googleapis.com/auth/drive.file
+const DRIVE_SPACE = 'appDataFolder';
+```
+
+### 4.3 Load State on App Init
+
+```typescript
+async function loadStateFromDrive(accessToken: string): Promise<TrackerState> {
+  // 1. Search for existing state file
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_SPACE}&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const { files } = await searchRes.json();
+
+  if (!files || files.length === 0) {
+    return {}; // No state file yet, start fresh
+  }
+
+  // 2. Fetch file contents
+  const fileId = files[0].id;
+  const contentRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  return await contentRes.json();
+}
+```
+
+### 4.4 Save State to Drive (Debounced)
+
+```typescript
+// Cache the file ID after first load to avoid repeated searches
+let driveFileId: string | null = null;
+
+async function saveStateToDrive(state: TrackerState, accessToken: string): Promise<void> {
+  const body = JSON.stringify(state);
+  const blob = new Blob([body], { type: 'application/json' });
+
+  if (driveFileId) {
+    // Update existing file (PATCH)
+    await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      }
+    );
+  } else {
+    // Create new file (POST multipart)
+    const metadata = { name: DRIVE_FILE_NAME, parents: [DRIVE_SPACE] };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: form,
+      }
+    );
+    const { id } = await res.json();
+    driveFileId = id;
   }
 }
 
-function saveState(state: TrackerState): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+// Debounce writes — 500ms delay to batch rapid checkbox/note changes
+function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  return ((...args: any[]) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  }) as T;
 }
 
+const debouncedSave = debounce(saveStateToDrive, 500);
+```
+
+### 4.5 State Mutation Helpers
+
+```typescript
 function markReceived(state: TrackerState, orderId: string, received: boolean): TrackerState {
-  return {
-    ...state,
-    [orderId]: { ...state[orderId], received }
-  };
+  return { ...state, [orderId]: { ...state[orderId], received } };
 }
 
 function saveNote(state: TrackerState, orderId: string, note: string): TrackerState {
-  return {
-    ...state,
-    [orderId]: { ...state[orderId], note }
-  };
+  return { ...state, [orderId]: { ...state[orderId], note } };
 }
+```
+
+### 4.6 Save Indicator UI
+
+Show a subtle status indicator near the top of the tracker view that reflects Drive sync state:
+
+| State | Display |
+|---|---|
+| Idle | Hidden |
+| Saving | "Saving…" in muted text |
+| Saved | "Saved ✓" briefly, then fades |
+| Error | "Save failed — check connection" in red |
+
+### 4.7 Required OAuth Scope
+
+Add the following scope to your existing Google OAuth consent request:
+
+```
+https://www.googleapis.com/auth/drive.appdata
+```
+
+Or if using visible Drive root storage:
+
+```
+https://www.googleapis.com/auth/drive.file
 ```
 
 ---

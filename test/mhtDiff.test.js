@@ -143,16 +143,16 @@ describe('applyShippingUpdates', () => {
     expect(updatedCount).toBe(2);
   });
 
-  test('updatedCount includes received orders (they are still in updates list)', () => {
-    // applyShippingUpdates returns updates.length regardless of how many were
-    // actually applied (received orders are skipped in mutation but still counted)
+  test('updatedCount reflects only updates actually applied (skips received orders)', () => {
+    // applyShippingUpdates now returns only the count of updates actually applied;
+    // orders marked received: true are skipped and do not count.
     const orders = [makeOrder({ id: 'ORD-001' })];
     const state = { 'ORD-001': { received: true } };
     const updates = [
       { orderId: 'ORD-001', trackingNumber: 'TRACK', shippingConfirmed: true },
     ];
     const { updatedCount } = applyShippingUpdates(state, updates, orders);
-    expect(updatedCount).toBe(1);
+    expect(updatedCount).toBe(0);
   });
 
   test('preserves existing state keys not involved in updates', () => {

@@ -1,7 +1,7 @@
 'use strict';
 
 const { parseOrdersFromHtml } = require('./orderParser');
-const { debouncedSave } = require('./driveSync');
+const { saveStateToDrive } = require('./driveSync');
 
 // ─── JSDoc type definitions ───────────────────────────────────────────────────
 
@@ -41,8 +41,10 @@ const { debouncedSave } = require('./driveSync');
 function diffShippingStatus(previousOrders, freshOrders) {
   const updates = [];
 
+  const prevMap = new Map(previousOrders.map((o) => [o.id, o]));
+
   freshOrders.forEach((fresh) => {
-    const prev = previousOrders.find((o) => o.id === fresh.id);
+    const prev = prevMap.get(fresh.id);
     if (!prev) return; // New order — handled separately
 
     const trackingChanged = fresh.trackingNumber !== prev.trackingNumber;
@@ -76,20 +78,24 @@ function diffShippingStatus(previousOrders, freshOrders) {
  */
 function applyShippingUpdates(state, updates, orders) {
   const newState = { ...state };
+  const ordersMap = new Map(orders.map((o) => [o.id, o]));
+  let updatedCount = 0;
 
   updates.forEach((update) => {
     // Never overwrite a manually received order
     if (newState[update.orderId]?.received) return;
 
     // Update the in-memory order object
-    const order = orders.find((o) => o.id === update.orderId);
+    const order = ordersMap.get(update.orderId);
     if (order) {
       order.trackingNumber = update.trackingNumber;
       order.shippingConfirmed = update.shippingConfirmed;
     }
+
+    updatedCount += 1;
   });
 
-  return { newState, updatedCount: updates.length };
+  return { newState, updatedCount };
 }
 
 /**
@@ -124,7 +130,7 @@ async function onMhtUpload(htmlText, existingOrders, state, accessToken) {
 
   // 5. Persist to Drive if anything changed
   if (updatedCount > 0) {
-    await debouncedSave(newState, accessToken);
+    await saveStateToDrive(newState, accessToken);
   }
 
   return { freshOrders, updatedCount, newOrderCount };

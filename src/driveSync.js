@@ -58,6 +58,11 @@ async function loadStateFromDrive(accessToken) {
       `?spaces=${DRIVE_SPACE}&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+  if (!searchRes.ok) {
+    throw new Error(
+      `Drive file search failed: ${searchRes.status} ${await searchRes.text()}`
+    );
+  }
   const { files } = await searchRes.json();
 
   if (!files || files.length === 0) {
@@ -71,6 +76,11 @@ async function loadStateFromDrive(accessToken) {
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+  if (!contentRes.ok) {
+    throw new Error(
+      `Drive file download failed: ${contentRes.status} ${await contentRes.text()}`
+    );
+  }
   return await contentRes.json();
 }
 
@@ -91,7 +101,7 @@ async function saveStateToDrive(state, accessToken) {
 
   if (driveFileId) {
     // Update existing file
-    await fetch(
+    const patchRes = await fetch(
       `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
       {
         method: 'PATCH',
@@ -102,6 +112,11 @@ async function saveStateToDrive(state, accessToken) {
         body,
       }
     );
+    if (!patchRes.ok) {
+      throw new Error(
+        `Drive file update failed: ${patchRes.status} ${await patchRes.text()}`
+      );
+    }
   } else {
     // Create new file (multipart upload)
     const metadata = { name: DRIVE_FILE_NAME, parents: [DRIVE_SPACE] };
@@ -120,6 +135,11 @@ async function saveStateToDrive(state, accessToken) {
         body: form,
       }
     );
+    if (!res.ok) {
+      throw new Error(
+        `Drive file create failed: ${res.status} ${await res.text()}`
+      );
+    }
     const { id } = await res.json();
     driveFileId = id;
   }
@@ -131,16 +151,43 @@ async function saveStateToDrive(state, accessToken) {
  * Returns a debounced version of `fn` that delays execution by `ms`
  * milliseconds, resetting the timer on each new call.
  *
+ * The returned function is Promise-aware: every call returns a Promise for the
+ * next scheduled execution, and any error thrown by `fn` is propagated to all
+ * callers waiting on that scheduled run.
+ *
  * @template {(...args: any[]) => any} T
  * @param {T} fn
  * @param {number} ms
- * @returns {T}
+ * @returns {(...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>>}
  */
 function debounce(fn, ms) {
   let timer;
+  let lastArgs;
+  let lastThis;
+  /** @type {Array<{ resolve: (value: any) => void, reject: (reason?: any) => void }>} */
+  let pending = [];
+
   return function (...args) {
+    lastArgs = args;
+    lastThis = this;
+
     clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
+
+    return new Promise((resolve, reject) => {
+      pending.push({ resolve, reject });
+
+      timer = setTimeout(async () => {
+        const currentPending = pending;
+        pending = [];
+
+        try {
+          const result = await fn.apply(lastThis, lastArgs);
+          currentPending.forEach(({ resolve: res }) => res(result));
+        } catch (error) {
+          currentPending.forEach(({ reject: rej }) => rej(error));
+        }
+      }, ms);
+    });
   };
 }
 

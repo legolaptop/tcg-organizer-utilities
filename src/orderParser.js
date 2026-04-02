@@ -121,11 +121,12 @@ function isCanceled(html) {
  *                 `data-aid="div-sellerorderwidget-shippingnotconfirmed"`.
  *
  * @param {string} html
+ * @param {number} index - zero-based position of this order in the page
  * @returns {{ id: string, seller: string, date: string, total: number,
  *             estimatedDelivery: string, trackingNumber: string|null,
  *             shippingConfirmed: boolean, partialRefund: number|null }}
  */
-function extractOrderMeta(html) {
+function extractOrderMeta(html, index) {
   // ── Order ID ────────────────────────────────────────────────
   let id =
     (html.match(/data-orderid=['"]([^'"]+)['"]/i) ||
@@ -139,7 +140,7 @@ function extractOrderMeta(html) {
     if (m) id = m[1];
   }
 
-  if (!id) id = `UNKNOWN-${Math.random().toString(36).slice(2, 9).toUpperCase()}`;
+  if (!id) id = `UNKNOWN-${index}`;
 
   // ── Seller ──────────────────────────────────────────────────
   const seller =
@@ -238,7 +239,7 @@ function parseOrdersFromHtml(htmlText) {
     if (isFullyRefunded(precedingHtml)) continue;
 
     const canceled = isCanceled(precedingHtml);
-    const meta = extractOrderMeta(precedingHtml);
+    const meta = extractOrderMeta(precedingHtml, orders.length);
 
     // Parse raw card rows from the table
     const rawItems = parseRowsFromHtml(tableMatch[1]);

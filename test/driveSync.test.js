@@ -188,48 +188,43 @@ describe('setCardState', () => {
 // ── saveWithIndicator ─────────────────────────────────────────────────────────
 
 describe('saveWithIndicator', () => {
-  beforeEach(() => resetDriveFileId());
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    resetDriveFileId();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
 
   test('calls onStatus with "saving" then "saved" on success', async () => {
     const statuses = [];
-    const mockSave = jest.fn().mockResolvedValue(undefined);
 
-    // Temporarily replace saveStateToDrive via a minimal inline test
-    const { saveWithIndicator: localSave } = (() => {
-      async function saveWithIndicator(state, accessToken, onStatus, _save) {
-        onStatus('saving');
-        try {
-          await _save(state, accessToken);
-          onStatus('saved');
-        } catch {
-          onStatus('error');
-        }
-      }
-      return { saveWithIndicator };
-    })();
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ files: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 'drive-file-id' }),
+      });
 
-    await localSave({}, 'token', (s) => statuses.push(s), mockSave);
+    await saveWithIndicator({}, 'token', (s) => statuses.push(s));
+
     expect(statuses).toEqual(['saving', 'saved']);
   });
 
   test('calls onStatus with "saving" then "error" on failure', async () => {
     const statuses = [];
-    const mockSave = jest.fn().mockRejectedValue(new Error('network error'));
 
-    const { saveWithIndicator: localSave } = (() => {
-      async function saveWithIndicator(state, accessToken, onStatus, _save) {
-        onStatus('saving');
-        try {
-          await _save(state, accessToken);
-          onStatus('saved');
-        } catch {
-          onStatus('error');
-        }
-      }
-      return { saveWithIndicator };
-    })();
+    global.fetch = jest.fn().mockRejectedValue(new Error('network error'));
 
-    await localSave({}, 'token', (s) => statuses.push(s), mockSave);
+    await saveWithIndicator({}, 'token', (s) => statuses.push(s));
+
     expect(statuses).toEqual(['saving', 'error']);
   });
 });

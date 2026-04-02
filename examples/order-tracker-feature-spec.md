@@ -15,29 +15,49 @@ Your existing MHT parser should produce an array of order objects. The tracker f
 
 ```typescript
 interface CardItem {
-  name: string;        // e.g. "Bloodstained Mire"
-  set: string;         // e.g. "Modern Horizons 3"
-  condition: string;   // e.g. "Near Mint", "Lightly Played Foil"
-  price: number;       // per-card price, e.g. 18.76
-  quantity: number;    // e.g. 1
-  foil: boolean;       // true if condition string contains "Foil"
+  name: string;         // e.g. "Bloodstained Mire"
+  set: string;          // e.g. "Modern Horizons 3"
+  condition: string;    // e.g. "Near Mint", "Lightly Played Foil"
+  price: number;        // per-card price, e.g. 18.76
+  quantity: number;     // e.g. 1
+  foil: boolean;        // true if condition string contains "Foil"
+  cardSeller: string;   // per-card seller for Direct orders (e.g. "SuperGamesInc");
+                        // falls back to order-level seller for regular marketplace orders
 }
 
 interface Order {
   id: string;              // order number, e.g. "D15EE6BF-9B4455-9D46F"
   date: string;            // order placed date, e.g. "March 31, 2026"
-  seller: string;          // e.g. "TCG Transfer"
+  seller: string;          // order-level seller, e.g. "TCGplayer Direct" or "TC's Rockets"
   total: number;           // order total incl. tax/shipping, e.g. 5.98
   estimatedDelivery: string; // e.g. "April 14, 2026"
   trackingNumber: string | null;  // null if no tracking
   shippingConfirmed: boolean;     // false if "Shipping Not Confirmed"
   canceled: boolean;              // true if order was canceled
-  refundAmount: number | null;    // e.g. 7.01 if refunded
+  partialRefund: number | null;   // e.g. 0.43 if partially refunded, null otherwise
   cards: CardItem[];
 }
 ```
 
 > **Note:** Canceled orders should be excluded from the tracker view entirely. The existing parser may already handle this.
+
+### 1.1 Card Identifier Key
+
+Each card within an order needs a stable unique key for per-card state tracking. Use a composite key derived from fields available in both order types:
+
+```typescript
+function cardKey(card: CardItem): string {
+  // Combines fields that uniquely identify a card line item within an order.
+  // cardSeller differentiates cards in Direct orders from multiple sellers;
+  // price handles edge cases where the same card appears twice at different prices.
+  return `${card.name}|${card.set}|${card.condition}|${card.price}|${card.cardSeller}`;
+}
+```
+
+> **Parser note:** For regular marketplace orders, `cardSeller` should be populated with
+> the order-level `seller` value during parsing, since the MHT does not list a per-card
+> seller for those orders. For TCGplayer Direct orders, parse the `Sold by X` text that
+> appears after each card name in the MHT.
 
 ---
 
@@ -100,13 +120,27 @@ Persist tracker state as a single JSON file on the user's Google Drive. This kee
 ### 4.1 State Schema
 
 ```typescript
+interface CardState {
+  canceled: boolean;  // manually flagged as canceled (partial refund or out of stock)
+  missing: boolean;   // order arrived but this card was absent from the package
+}
+
 interface OrderState {
   received: boolean;
   note?: string;
+  cards?: Record<string, CardState>; // keyed by cardKey() — only populated if
+                                     // the order has a partialRefund or user flags a card
 }
 
 type TrackerState = Record<string, OrderState>; // keyed by order.id
 ```
+
+**Card state is opt-in:** The `cards` map is only created on an order when the user
+interacts with individual card checkboxes. Orders with no per-card state simply omit it.
+
+**Partial refund flag:** When an order has `partialRefund !== null`, the UI should
+display a warning banner on that order prompting the user to identify which card(s)
+are affected. This does not auto-populate `cards` — it just surfaces the prompt.
 
 ### 4.2 Drive File Config
 
@@ -241,7 +275,71 @@ https://www.googleapis.com/auth/drive.file
 
 ---
 
-## 5. Summary Stats
+## 5. Per-Card State: UI & Behavior
+
+### 5.1 When to Show Per-Card Controls
+
+Show individual card checkboxes inside an expanded order in two situations:
+
+| Trigger | Behavior |
+|---|---|
+| Order has `partialRefund !== null` | Show warning banner + per-card controls on expand |
+| User manually expands and flags a card | Per-card controls always available on expand |
+
+### 5.2 Card Status Options
+
+Each card line item inside an expanded order should have two toggleable states:
+
+```
+[ ] Canceled   — card was not fulfilled (partial refund, out of stock)
+[ ] Missing    — order arrived but this card was absent from the package
+```
+
+Only one state should be active at a time per card. Toggling one clears the other.
+
+### 5.3 Partial Refund Banner
+
+When `order.partialRefund !== null`, show a banner inside the order card:
+
+> ⚠ Partial refund of **$X.XX** issued — expand to identify affected card(s)
+
+This banner should persist until at least one card in the order is marked `canceled`.
+
+### 5.4 State Mutation Helpers
+
+```typescript
+function setCardState(
+  state: TrackerState,
+  orderId: string,
+  key: string,
+  update: Partial<CardState>
+): TrackerState {
+  const existing = state[orderId] ?? { received: false };
+  const existingCards = existing.cards ?? {};
+  return {
+    ...state,
+    [orderId]: {
+      ...existing,
+      cards: {
+        ...existingCards,
+        [key]: { canceled: false, missing: false, ...existingCards[key], ...update }
+      }
+    }
+  };
+}
+```
+
+### 5.5 Visual Treatment
+
+| Card State | Display |
+|---|---|
+| Default | Normal |
+| `canceled` | Strikethrough text + muted red tint |
+| `missing` | Strikethrough text + muted orange tint |
+
+---
+
+## 6. Summary Stats
 
 Display at the top of the tracker view:
 
@@ -270,23 +368,33 @@ function getStats(orders: Order[], state: TrackerState, today: Date): TrackerSta
 
 ---
 
-## 6. Handoff to CSV Export
+## 7. Handoff to CSV Export
 
-When an order is marked as received, pass its `cards` array to your existing export pipeline. The `CardItem` fields map to your existing CSV columns as you already have them defined.
+When an order is marked as received, pass its `cards` array to your existing export pipeline, excluding any cards marked as `canceled` or `missing`.
 
 ```typescript
 function getReceivedCards(orders: Order[], state: TrackerState): CardItem[] {
   return orders
     .filter(o => !o.canceled && state[o.id]?.received)
-    .flatMap(o => o.cards);
+    .flatMap(o => {
+      const cardStates = state[o.id]?.cards ?? {};
+      return o.cards.filter(card => {
+        const cs = cardStates[cardKey(card)];
+        // Exclude cards explicitly marked canceled or missing
+        return !cs?.canceled && !cs?.missing;
+      });
+    });
 }
 ```
 
 Call your existing export function with this array whenever the user triggers the export action.
 
+> **Note:** A card marked `missing` implies it was not received and should not be
+> exported to Moxfield. The user should follow up with the seller separately.
+
 ---
 
-## 7. Filter Modes
+## 8. Filter Modes
 
 The view should support four filter modes toggled by the user:
 
@@ -296,3 +404,117 @@ The view should support four filter modes toggled by the user:
 | `incoming` | Active orders not yet received |
 | `overdue` | Orders past est. delivery, not received |
 | `received` | Orders marked as received |
+
+---
+
+## 9. Automatic Shipping Updates (MHT Diff)
+
+When the user uploads a fresh MHT export, diff it against the current tracker state and automatically update shipping fields for any orders that have changed. This requires no additional APIs or OAuth scopes — it uses the same MHT parser already in the app.
+
+### 8.1 What This Updates
+
+The diff should only update shipping-related fields. It must never overwrite `received: true` or clear a user's notes.
+
+```typescript
+interface ShippingUpdate {
+  orderId: string;
+  trackingNumber: string | null;  // null if still untracked
+  shippingConfirmed: boolean;
+}
+```
+
+### 8.2 Diff Logic
+
+After parsing the fresh MHT into a new `Order[]`, compare each order against the existing loaded orders and emit updates for any orders where shipping status has changed.
+
+```typescript
+function diffShippingStatus(
+  previousOrders: Order[],
+  freshOrders: Order[]
+): ShippingUpdate[] {
+  const updates: ShippingUpdate[] = [];
+
+  freshOrders.forEach(fresh => {
+    const prev = previousOrders.find(o => o.id === fresh.id);
+    if (!prev) return; // New order not previously seen — no diff needed
+
+    const trackingChanged = fresh.trackingNumber !== prev.trackingNumber;
+    const confirmedChanged = fresh.shippingConfirmed !== prev.shippingConfirmed;
+
+    if (trackingChanged || confirmedChanged) {
+      updates.push({
+        orderId: fresh.id,
+        trackingNumber: fresh.trackingNumber,
+        shippingConfirmed: fresh.shippingConfirmed,
+      });
+    }
+  });
+
+  return updates;
+}
+```
+
+### 8.3 Applying Updates to State
+
+Merge shipping updates into the existing `TrackerState` without touching `received` or `note`.
+
+```typescript
+function applyShippingUpdates(
+  state: TrackerState,
+  updates: ShippingUpdate[],
+  orders: Order[]
+): { newState: TrackerState; updatedCount: number } {
+  let newState = { ...state };
+
+  updates.forEach(update => {
+    // Never overwrite a manually received order
+    if (newState[update.orderId]?.received) return;
+
+    // Update the in-memory order object
+    const order = orders.find(o => o.id === update.orderId);
+    if (order) {
+      order.trackingNumber = update.trackingNumber;
+      order.shippingConfirmed = update.shippingConfirmed;
+    }
+  });
+
+  return { newState, updatedCount: updates.length };
+}
+```
+
+### 8.4 Trigger Points
+
+Run the diff automatically whenever the user uploads a new MHT file, immediately after parsing:
+
+```typescript
+async function onMhtUpload(file: File, existingOrders: Order[], state: TrackerState) {
+  // 1. Parse the new MHT using existing parser
+  const freshOrders = await parseMht(file);
+
+  // 2. Diff shipping status
+  const updates = diffShippingStatus(existingOrders, freshOrders);
+
+  // 3. Apply updates
+  const { newState, updatedCount } = applyShippingUpdates(state, updates, existingOrders);
+
+  // 4. Persist updated state to Drive if anything changed
+  if (updatedCount > 0) {
+    await debouncedSave(newState, accessToken);
+  }
+
+  // 5. Notify user
+  return { freshOrders, updatedCount };
+}
+```
+
+### 8.5 User Notification
+
+After a diff, show a brief toast or inline message indicating what changed:
+
+| Result | Message |
+|---|---|
+| No changes | "Orders up to date" |
+| 1+ updates | "Updated shipping status for N order(s)" |
+| New orders found | "N new order(s) detected — reload to view" |
+
+> **Note on new orders:** If the fresh MHT contains order IDs not present in `existingOrders`, surface them as a notification rather than silently merging. The user may want to reload the full order list intentionally.

@@ -225,3 +225,368 @@ footer a {
 footer a:hover {
   text-decoration: underline;
 }
+
+/* ── Tab navigation ────────────────────────────────────────── */
+.tab-nav {
+  display: flex;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-top: 1.25rem;
+}
+
+.tab-btn {
+  cursor: pointer;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 1.25rem;
+  color: #4a5568;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.tab-btn:hover {
+  color: #2b4c8c;
+  background: #edf2f7;
+}
+
+.tab-btn--active {
+  color: #2b4c8c;
+  border-color: #2b4c8c;
+  background: #fff;
+}
+
+/* ── Save indicator ─────────────────────────────────────────── */
+.save-indicator {
+  min-height: 1.2rem;
+  font-size: 0.8rem;
+  color: #718096;
+  text-align: right;
+  margin-bottom: 0.25rem;
+}
+
+.save-indicator--saving {
+  color: #718096;
+}
+
+.save-indicator--saved {
+  color: #38a169;
+}
+
+.save-indicator--error {
+  color: #c53030;
+}
+
+/* ── Filter tabs ────────────────────────────────────────────── */
+.filter-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filter-tab {
+  cursor: pointer;
+  background: #e2e8f0;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.3rem 0.9rem;
+  color: #4a5568;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.filter-tab:hover {
+  background: #cbd5e0;
+}
+
+.filter-tab--active {
+  background: #2b4c8c;
+  color: #fff;
+  border-color: #2b4c8c;
+}
+
+/* ── Summary stats bar ─────────────────────────────────────── */
+.tracker-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  padding: 0.6rem 1rem;
+  min-width: 70px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #2d3748;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.72rem;
+  color: #718096;
+  margin-top: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-item--received .stat-value { color: #38a169; }
+.stat-item--overdue  .stat-value { color: #c53030; }
+.stat-item--unconfirmed .stat-value { color: #c05621; }
+
+/* ── Order groups ───────────────────────────────────────────── */
+.order-group {
+  margin-bottom: 1.5rem;
+}
+
+.order-group__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.order-group__label {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.order-group__label--overdue  { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+.order-group__label--soon     { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
+.order-group__label--incoming { background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; }
+
+.order-group__date {
+  font-size: 0.82rem;
+  color: #718096;
+  font-weight: 500;
+}
+
+/* ── Order cards ────────────────────────────────────────────── */
+.order-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  margin-bottom: 0.75rem;
+  border-left: 4px solid transparent;
+  overflow: hidden;
+}
+
+.order-card--overdue    { border-left-color: #e53e3e; }
+.order-card--unconfirmed { border-left-color: #dd6b20; }
+.order-card--tracked    { border-left-color: #38a169; }
+.order-card--received   { opacity: 0.7; }
+
+.order-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  flex-wrap: wrap;
+}
+
+.order-card__received-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4a5568;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.order-card__received-cb {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.order-card__info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.order-card__id {
+  font-size: 0.78rem;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: #4a5568;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.order-card__seller {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.order-card__total {
+  font-size: 0.82rem;
+  color: #718096;
+}
+
+.order-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.order-card__tracking {
+  font-size: 0.72rem;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: #718096;
+}
+
+.order-card__expand-btn {
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  color: #4a5568;
+  padding: 0.25rem 0.6rem;
+  margin-left: auto;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.order-card__expand-btn:hover {
+  background: #edf2f7;
+}
+
+.order-card__body {
+  border-top: 1px solid #e2e8f0;
+  padding: 0.75rem 1rem;
+}
+
+/* ── Status badges ──────────────────────────────────────────── */
+.status-badge {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.status-badge--overdue     { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
+.status-badge--unconfirmed { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
+.status-badge--tracked     { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+
+/* ── Partial refund banner ──────────────────────────────────── */
+.partial-refund-banner {
+  background: #fffaf0;
+  border: 1px solid #fbd38d;
+  border-radius: 6px;
+  color: #7b341e;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ── Card list ──────────────────────────────────────────────── */
+.order-card__card-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.5rem;
+  border-radius: 5px;
+  transition: background 0.15s;
+}
+
+.card-row:hover {
+  background: #f7fafc;
+}
+
+.card-row--canceled {
+  background: #fff5f5;
+  opacity: 0.75;
+}
+
+.card-row--canceled .card-row__name,
+.card-row--canceled .card-row__meta {
+  text-decoration: line-through;
+  color: #a0aec0;
+}
+
+.card-row--missing {
+  background: #fffaf0;
+  opacity: 0.75;
+}
+
+.card-row--missing .card-row__name,
+.card-row--missing .card-row__meta {
+  text-decoration: line-through;
+  color: #a0aec0;
+}
+
+.card-row__name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2d3748;
+  flex: 1;
+  min-width: 100px;
+}
+
+.card-row__meta {
+  font-size: 0.76rem;
+  color: #718096;
+}
+
+.card-row__controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.card-row__check-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.76rem;
+  color: #4a5568;
+  cursor: pointer;
+}
+
+/* ── No orders message ──────────────────────────────────────── */
+.no-orders-msg {
+  text-align: center;
+  color: #718096;
+  font-size: 0.9rem;
+  padding: 2rem;
+}

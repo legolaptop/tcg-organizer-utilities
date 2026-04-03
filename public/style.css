@@ -674,3 +674,92 @@ footer a:hover {
   font-size: 0.9rem;
   padding: 2rem;
 }
+
+/* ── File upload picker (label-based, auto-processes) ─────── */
+.file-upload--picker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.file-upload__name {
+  font-size: 0.82rem;
+  color: #718096;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 260px;
+}
+
+/* ── Upload help affordance ─────────────────────────────────── */
+.upload-help {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #4a5568;
+}
+
+.upload-help__toggle {
+  cursor: pointer;
+  color: #2b4c8c;
+  font-weight: 600;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.upload-help__toggle::-webkit-details-marker { display: none; }
+
+.upload-help__toggle::before {
+  content: '▸';
+  font-size: 0.7rem;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+details[open] .upload-help__toggle::before {
+  transform: rotate(90deg);
+}
+
+.upload-help__body {
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: #f7fafc;
+  border-left: 3px solid #bee3f8;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.55;
+  color: #4a5568;
+}
+
+.upload-help__body a {
+  color: #2b4c8c;
+  text-decoration: none;
+}
+
+.upload-help__body a:hover {
+  text-decoration: underline;
+}
+
+.upload-help__body code {
+  background: #edf2f7;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.77rem;
+  color: #2b4c8c;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}

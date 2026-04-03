@@ -46,10 +46,10 @@
           spellcheck="false"
         ></textarea>
 
-        <p class="hint">Supported: .mht, .mhtml, .html, .htm — you can upload multiple files.</p>
+        <p class="hint">Upload one or more order-history files (.mht, .mhtml, .html) to populate the text area.</p>
         <div class="file-upload">
           <input id="file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple="">
-          <button id="parse-files-btn" class="btn btn-secondary">Parse uploaded files</button>
+          <button id="parse-files-btn" class="btn btn-secondary">Load from file</button>
         </div>
 
         <div class="actions">
@@ -95,14 +95,24 @@
         <!-- Save indicator -->
         <div id="save-indicator" class="save-indicator" aria-live="polite"></div>
 
-        <!-- MHT upload for tracker -->
+        <!-- Order-history file upload for tracker -->
         <section class="card" id="tracker-upload-section">
-          <span class="section-label">Load Orders from MHT</span>
-          <p class="hint">Upload your TCGPlayer order-history MHT export to populate the tracker.</p>
-          <div class="file-upload">
-            <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
-            <button id="tracker-parse-btn" class="btn btn-secondary">Load orders</button>
+          <span class="section-label">Load Orders from File</span>
+          <p class="hint">Select your saved TCGPlayer order-history file — it is loaded automatically after you choose it.</p>
+          <div class="file-upload file-upload--picker">
+            <label for="tracker-file-input" class="btn btn-primary">Choose file…</label>
+            <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple class="sr-only" />
+            <span class="file-upload__name" id="tracker-file-name">No file chosen</span>
           </div>
+          <details class="upload-help">
+            <summary class="upload-help__toggle">How do I get this file?</summary>
+            <p class="upload-help__body">
+              Go to your <a href="https://www.tcgplayer.com/orders" target="_blank" rel="noopener noreferrer">TCGPlayer order history</a> page,
+              then right-click the page and choose <strong>Save As</strong>.
+              Save it as <code>.mht</code>, <code>.mhtml</code>, or <code>.html</code> —
+              a simple right-click save is usually enough.
+            </p>
+          </details>
           <div id="tracker-upload-msg" class="hint" style="margin-top:0.5rem;" hidden></div>
         </section>
 
@@ -144,7 +154,7 @@
 
         <!-- Empty state -->
         <div id="no-orders" class="card no-orders-msg" hidden>
-          <p>No orders match this filter. Upload an MHT file to get started.</p>
+          <p>No orders match this filter. Load an order-history file above to get started.</p>
         </div>
 
         <!-- Export received cards -->

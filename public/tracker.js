@@ -55,7 +55,7 @@
 
   const saveIndicator = document.getElementById('save-indicator');
   const trackerFileInput = document.getElementById('tracker-file-input');
-  const trackerParseBtn = document.getElementById('tracker-parse-btn');
+  const trackerFileName = document.getElementById('tracker-file-name');
   const trackerUploadMsg = document.getElementById('tracker-upload-msg');
 
   const filterTabs = document.querySelectorAll('.filter-tab');
@@ -348,17 +348,19 @@
     }
   }
 
-  // ── MHT file upload ───────────────────────────────────────────
+  // ── Order-history file upload (auto-processes on selection) ──
 
-  trackerParseBtn.addEventListener('click', async () => {
+  trackerFileInput.addEventListener('change', async () => {
     const files = trackerFileInput.files;
-    if (!files || files.length === 0) {
-      showUploadMsg('Please select one or more MHT/HTML archive files.', true);
-      return;
+    if (!files || files.length === 0) return;
+
+    // Update filename display
+    if (trackerFileName) {
+      trackerFileName.textContent =
+        files.length === 1 ? files[0].name : `${files.length} files selected`;
     }
 
-    trackerParseBtn.disabled = true;
-    showUploadMsg('Parsing…', false);
+    showUploadMsg('Loading…', false);
 
     try {
       const reads = Array.from(files).map(
@@ -378,7 +380,7 @@
       }
 
       if (freshOrders.length === 0) {
-        showUploadMsg('No orders found in the uploaded files.', true);
+        showUploadMsg('No orders found in the selected file(s). Make sure you saved the full TCGPlayer order-history page.', true);
         return;
       }
 
@@ -402,10 +404,8 @@
 
       renderTracker();
     } catch (e) {
-      showUploadMsg('An error occurred parsing files.', true);
+      showUploadMsg('An error occurred loading the file. Please try again.', true);
       console.error(e);
-    } finally {
-      trackerParseBtn.disabled = false;
     }
   });
 

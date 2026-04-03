@@ -60,7 +60,12 @@
   let trackerState = {};   // TrackerState: Record<orderId, OrderState>
   let orders = [];         // Order[]
   let orderBodyHiddenState = {}; // Ephemeral UI state: Record<orderId, boolean>
-  const scryfallByTcgplayerId = new Map(); // Session cache: Map<tcgplayerId, cardData|null>
+  const sharedScryfallState = getSharedScryfallSessionState();
+  const scryfallByTcgplayerId = sharedScryfallState.byTcgplayerId; // Session cache: Map<tcgplayerId, cardData|null>
+  const scryfallInFlightByTcgplayerId = sharedScryfallState.inFlightByTcgplayerId;
+  const SCRYFALL_CONCURRENCY = 2;
+  const SCRYFALL_MAX_RETRIES = 2;
+  const SCRYFALL_BASE_BACKOFF_MS = 1000;
   let activeFilter = 'all';
   let saveTimer = null;
 
@@ -97,6 +102,44 @@
   const defaultTrackerParseBtnText = trackerParseBtn.textContent;
 
   // ── Tab navigation ────────────────────────────────────────────
+
+  function getSharedScryfallSessionState() {
+    if (!window.__tcgScryfallSessionState) {
+      window.__tcgScryfallSessionState = {
+        byTcgplayerId: new Map(),
+        inFlightByTcgplayerId: new Map(),
+        backoffUntilMs: 0,
+      };
+    }
+    return window.__tcgScryfallSessionState;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+  }
+
+  function parseRetryAfterMs(headerValue) {
+    if (!headerValue) return 0;
+    const trimmed = String(headerValue).trim();
+    const seconds = parseInt(trimmed, 10);
+    if (!Number.isNaN(seconds) && seconds > 0) return seconds * 1000;
+    const parsedDate = Date.parse(trimmed);
+    if (!Number.isNaN(parsedDate)) return Math.max(0, parsedDate - Date.now());
+    return 0;
+  }
+
+  function normalizeScryfallCardData(tcgId, json) {
+    return {
+      id: tcgId,
+      name: json.name || '',
+      setCode: (json.set || '').toUpperCase(),
+      setName: json.set_name || '',
+      collectorNumber: json.collector_number || '',
+      rarity: json.rarity || '',
+      scryfallId: json.id || '',
+      scryfallUri: json.scryfall_uri || '',
+    };
+  }
 
   navConverter.addEventListener('click', () => showTab('converter'));
   navTracker.addEventListener('click', () => showTab('tracker'));
@@ -639,6 +682,15 @@
       if (updatedCount > 0 || visibleNewOrders.length > 0) debouncedSave();
 
       renderTracker();
+      if (visibleNewOrders.length > 0) {
+        hydrateScryfallForOrderCards(visibleNewOrders)
+          .then((resolvedCount) => {
+            if (resolvedCount > 0) renderTracker();
+          })
+          .catch((err) => {
+            console.warn('Scryfall enrichment unavailable for tracker links.', err);
+          });
+      }
     } catch (e) {
       showUploadMsg('An error occurred parsing files.', true);
       console.error(e);
@@ -1431,6 +1483,7 @@
     // Left: name + set
     const nameBlock = document.createElement('span');
     nameBlock.className = 'card-row__name';
+    const exactPrintingUrl = getExactPrintingScryfallUrl(card);
     const nameText = document.createElement('span');
     nameText.className = 'card-row__name-text';
     nameText.textContent = card.name;
@@ -1467,43 +1520,57 @@
     // Controls (hidden until row is clicked)
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
+    if (exactPrintingUrl) {
+      const scryLink = document.createElement('a');
+      scryLink.className = 'card-row__scryfall-link';
+      scryLink.href = exactPrintingUrl;
+      scryLink.target = '_blank';
+      scryLink.rel = 'noopener noreferrer';
+      scryLink.textContent = 'Scryfall ↗';
+      controls.appendChild(scryLink);
+    }
 
-    // Refunded checkbox — toggling on clears missing (mutually exclusive)
-    const cancelLabel = document.createElement('label');
-    cancelLabel.className = 'card-row__check-label';
-    const cancelCb = document.createElement('input');
-    cancelCb.type = 'checkbox';
-    cancelCb.checked = cs.canceled;
-    cancelCb.addEventListener('change', () => {
-      const currentMissing = getCurrentCardField(orderId, key, 'missing');
-      setCardStateFn(orderId, key, { canceled: cancelCb.checked, missing: cancelCb.checked ? false : currentMissing });
+    const issueGroup = document.createElement('div');
+    issueGroup.className = 'card-row__issue-group';
+    issueGroup.setAttribute('role', 'radiogroup');
+    issueGroup.setAttribute('aria-label', `Card issue status for ${card.name}`);
+
+    const refundBtn = document.createElement('button');
+    refundBtn.type = 'button';
+    refundBtn.className = `card-row__issue-btn${cs.canceled ? ' is-active' : ''}`;
+    refundBtn.setAttribute('role', 'radio');
+    refundBtn.setAttribute('aria-checked', cs.canceled ? 'true' : 'false');
+    refundBtn.textContent = 'Refunded';
+    refundBtn.addEventListener('click', () => {
+      const currentlyCanceled = getCurrentCardField(orderId, key, 'canceled');
+      const nextCanceled = !currentlyCanceled;
+      setCardStateFn(orderId, key, { canceled: nextCanceled, missing: nextCanceled ? false : getCurrentCardField(orderId, key, 'missing') });
       debouncedSave();
       renderTracker();
     });
-    cancelLabel.appendChild(cancelCb);
-    cancelLabel.appendChild(document.createTextNode(' Refunded'));
 
-    // Missing checkbox — toggling on clears canceled (mutually exclusive)
-    const missingLabel = document.createElement('label');
-    missingLabel.className = 'card-row__check-label';
-    const missingCb = document.createElement('input');
-    missingCb.type = 'checkbox';
-    missingCb.checked = cs.missing;
-    missingCb.addEventListener('change', () => {
-      const currentCanceled = getCurrentCardField(orderId, key, 'canceled');
-      setCardStateFn(orderId, key, { missing: missingCb.checked, canceled: missingCb.checked ? false : currentCanceled });
+    const missingBtn = document.createElement('button');
+    missingBtn.type = 'button';
+    missingBtn.className = `card-row__issue-btn${cs.missing ? ' is-active' : ''}`;
+    missingBtn.setAttribute('role', 'radio');
+    missingBtn.setAttribute('aria-checked', cs.missing ? 'true' : 'false');
+    missingBtn.textContent = 'Missing';
+    missingBtn.addEventListener('click', () => {
+      const currentlyMissing = getCurrentCardField(orderId, key, 'missing');
+      const nextMissing = !currentlyMissing;
+      setCardStateFn(orderId, key, { missing: nextMissing, canceled: nextMissing ? false : getCurrentCardField(orderId, key, 'canceled') });
       debouncedSave();
       renderTracker();
     });
-    missingLabel.appendChild(missingCb);
-    missingLabel.appendChild(document.createTextNode(' Missing'));
 
-    controls.appendChild(cancelLabel);
-    controls.appendChild(missingLabel);
+    issueGroup.appendChild(refundBtn);
+    issueGroup.appendChild(missingBtn);
+    controls.appendChild(issueGroup);
 
-    // Toggle controls on row click (but not if clicking a checkbox directly)
+    // Toggle pop-out controls when clicking row content, but not interactive controls.
     li.addEventListener('click', (e) => {
-      if (e.target.tagName === 'INPUT') return;
+      const interactive = e.target.closest('button, a, input, label');
+      if (interactive) return;
       li.classList.toggle('card-row--open');
     });
 
@@ -1511,6 +1578,20 @@
     li.appendChild(meta);
     li.appendChild(controls);
     return li;
+  }
+
+  function getExactPrintingScryfallUrl(card) {
+    if (!card || !card.tcgplayerId) return null;
+    const data = scryfallByTcgplayerId.get(card.tcgplayerId);
+    if (!data) return null;
+    if (data.scryfallUri) return data.scryfallUri;
+    if (data.setCode && data.collectorNumber) {
+      return `https://scryfall.com/card/${encodeURIComponent(data.setCode.toLowerCase())}/${encodeURIComponent(data.collectorNumber)}`;
+    }
+    if (data.scryfallId) {
+      return `https://scryfall.com/card/${encodeURIComponent(data.scryfallId)}`;
+    }
+    return null;
   }
 
   function makeBadge(text, type) {
@@ -1602,11 +1683,7 @@
     const ids = Array.from(new Set(
       cards.map(c => c.tcgplayerId).filter(id => typeof id === 'string' && id.trim() !== '')
     ));
-    const missingIds = ids.filter(id => !scryfallByTcgplayerId.has(id));
-    if (missingIds.length > 0) {
-      const fetched = await fetchAllScryfall(missingIds);
-      fetched.forEach((value, id) => scryfallByTcgplayerId.set(id, value));
-    }
+    if (ids.length > 0) await fetchAllScryfall(ids);
 
     return cards.map(card => {
       const tcgId = card.tcgplayerId;
@@ -1624,35 +1701,85 @@
     });
   }
 
-  async function fetchScryfallByTcgplayerId(tcgId) {
+  async function hydrateScryfallForOrderCards(orderArr) {
+    const ids = Array.from(new Set(
+      (orderArr || [])
+        .flatMap(order => (order.cards || []).map(card => card.tcgplayerId))
+        .filter(id => typeof id === 'string' && id.trim() !== '')
+    ));
+    if (ids.length === 0) return 0;
+    const before = ids.filter(id => scryfallByTcgplayerId.has(id)).length;
+    await fetchAllScryfall(ids);
+    const after = ids.filter(id => scryfallByTcgplayerId.has(id) && scryfallByTcgplayerId.get(id)).length;
+    return Math.max(0, after - before);
+  }
+
+  async function fetchScryfallByTcgplayerId(tcgId, attempt = 0) {
+    const now = Date.now();
+    if (sharedScryfallState.backoffUntilMs > now) {
+      await sleep(sharedScryfallState.backoffUntilMs - now);
+    }
     try {
       const res = await fetch(`https://api.scryfall.com/cards/tcgplayer/${tcgId}`, {
         signal: AbortSignal.timeout(8000),
       });
+      if (res.status === 429) {
+        const retryAfterMs = parseRetryAfterMs(res.headers.get('retry-after'));
+        const exponentialMs = SCRYFALL_BASE_BACKOFF_MS * (2 ** Math.min(attempt, 3));
+        const backoffMs = Math.max(retryAfterMs, exponentialMs);
+        sharedScryfallState.backoffUntilMs = Date.now() + backoffMs;
+        if (attempt < SCRYFALL_MAX_RETRIES) {
+          await sleep(backoffMs);
+          return fetchScryfallByTcgplayerId(tcgId, attempt + 1);
+        }
+        return null;
+      }
+      sharedScryfallState.backoffUntilMs = 0;
       if (!res.ok) return null;
       const json = await res.json();
-      return {
-        name: json.name || '',
-        setCode: (json.set || '').toUpperCase(),
-        setName: json.set_name || '',
-        collectorNumber: json.collector_number || '',
-        scryfallId: json.id || '',
-      };
+      return normalizeScryfallCardData(tcgId, json);
     } catch {
+      if (attempt < 1) {
+        await sleep(SCRYFALL_BASE_BACKOFF_MS);
+        return fetchScryfallByTcgplayerId(tcgId, attempt + 1);
+      }
       return null;
     }
   }
 
-  async function fetchAllScryfall(ids, concurrency = 6) {
+  async function fetchScryfallByTcgplayerIdCached(tcgId) {
+    if (!tcgId) return null;
+    if (scryfallByTcgplayerId.has(tcgId)) return scryfallByTcgplayerId.get(tcgId);
+    if (scryfallInFlightByTcgplayerId.has(tcgId)) {
+      return scryfallInFlightByTcgplayerId.get(tcgId);
+    }
+    const promise = fetchScryfallByTcgplayerId(tcgId)
+      .then((card) => {
+        scryfallByTcgplayerId.set(tcgId, card);
+        return card;
+      })
+      .catch(() => {
+        scryfallByTcgplayerId.set(tcgId, null);
+        return null;
+      })
+      .finally(() => {
+        scryfallInFlightByTcgplayerId.delete(tcgId);
+      });
+    scryfallInFlightByTcgplayerId.set(tcgId, promise);
+    return promise;
+  }
+
+  async function fetchAllScryfall(ids, concurrency = SCRYFALL_CONCURRENCY) {
     const results = new Map();
-    const idArr = Array.from(ids);
+    const idArr = Array.from(new Set((ids || []).filter(id => typeof id === 'string' && id.trim() !== '')));
+    if (idArr.length === 0) return results;
     let cursor = 0;
 
     async function worker() {
       while (cursor < idArr.length) {
         const i = cursor++;
         const id = idArr[i];
-        const card = await fetchScryfallByTcgplayerId(id);
+        const card = await fetchScryfallByTcgplayerIdCached(id);
         results.set(id, card);
       }
     }

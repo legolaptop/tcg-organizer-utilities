@@ -38,6 +38,7 @@
   let trackerState = {};   // TrackerState: Record<orderId, OrderState>
   let orders = [];         // Order[]
   let orderBodyHiddenState = {}; // Ephemeral UI state: Record<orderId, boolean>
+  const scryfallByTcgplayerId = new Map(); // Session cache: Map<tcgplayerId, cardData|null>
   let activeFilter = 'all';
   let saveTimer = null;
 
@@ -1171,22 +1172,98 @@
 
   // ── Export received cards ─────────────────────────────────────
 
-  exportBtn.addEventListener('click', () => {
+  exportBtn.addEventListener('click', async () => {
     const receivedCards = getReceivedCardsForExport(orders, trackerState);
     if (receivedCards.length === 0) {
       alert('No received cards to export yet.');
       return;
     }
-    const selectedFormat = exportFormat ? exportFormat.value : 'generic';
-    const csv = formatCardsToCSV(receivedCards, selectedFormat);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `received-cards-${selectedFormat}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportBtn.disabled = true;
+    const originalLabel = exportBtn.textContent;
+    exportBtn.textContent = 'Preparing...';
+    try {
+      const selectedFormat = exportFormat ? exportFormat.value : 'generic';
+      const enrichedCards = await enrichCardsForExport(receivedCards);
+      const csv = formatCardsToCSV(enrichedCards, selectedFormat);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `received-cards-${selectedFormat}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      exportBtn.disabled = false;
+      exportBtn.textContent = originalLabel;
+    }
   });
+
+  async function enrichCardsForExport(cards) {
+    const ids = Array.from(new Set(
+      cards.map(c => c.tcgplayerId).filter(id => typeof id === 'string' && id.trim() !== '')
+    ));
+    const missingIds = ids.filter(id => !scryfallByTcgplayerId.has(id));
+    if (missingIds.length > 0) {
+      const fetched = await fetchAllScryfall(missingIds);
+      fetched.forEach((value, id) => scryfallByTcgplayerId.set(id, value));
+    }
+
+    return cards.map(card => {
+      const tcgId = card.tcgplayerId;
+      if (!tcgId) return card;
+      const scry = scryfallByTcgplayerId.get(tcgId);
+      if (!scry) return card;
+      return {
+        ...card,
+        name: card.name || scry.name,
+        setName: scry.setName || card.set || '',
+        setCode: scry.setCode || '',
+        collectorNumber: scry.collectorNumber || '',
+        scryfallId: scry.scryfallId || '',
+      };
+    });
+  }
+
+  async function fetchScryfallByTcgplayerId(tcgId) {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/tcgplayer/${tcgId}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return {
+        name: json.name || '',
+        setCode: (json.set || '').toUpperCase(),
+        setName: json.set_name || '',
+        collectorNumber: json.collector_number || '',
+        scryfallId: json.id || '',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchAllScryfall(ids, concurrency = 6) {
+    const results = new Map();
+    const idArr = Array.from(ids);
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < idArr.length) {
+        const i = cursor++;
+        const id = idArr[i];
+        const card = await fetchScryfallByTcgplayerId(id);
+        results.set(id, card);
+      }
+    }
+
+    const workers = [];
+    for (let i = 0; i < Math.min(concurrency, idArr.length); i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+  }
 
   function formatCardsToCSV(cards, format) {
     const kind = String(format || 'generic').toLowerCase();
@@ -1220,11 +1297,11 @@
     const rows = cards.map(c => [
       c.quantity != null ? c.quantity : 1,
       csvField(c.name || ''),
-      csvField(c.set || ''),
+      csvField(c.setCode || c.set || ''),
       csvField(c.condition || 'Near Mint'),
       'English',
       c.foil ? 'foil' : '',
-      '',
+      csvField(c.collectorNumber || ''),
       '',
       'FALSE',
       c.price > 0 ? c.price.toFixed(2) : '',
@@ -1237,7 +1314,7 @@
     const rows = cards.map(c => [
       c.quantity != null ? c.quantity : 1,
       csvField(c.name || ''),
-      csvField(c.set || ''),
+      csvField(c.setCode || c.set || ''),
       csvField(c.condition || 'Near Mint'),
       c.foil ? 'foil' : '',
       c.price > 0 ? c.price.toFixed(2) : '',
@@ -1251,8 +1328,8 @@
       c.quantity != null ? c.quantity : 1,
       '',
       csvField(c.name || ''),
-      csvField(c.set || ''),
-      '',
+      csvField(c.setName || c.set || ''),
+      csvField(c.collectorNumber || ''),
       csvField(toShortCondition(c.condition || 'Near Mint')),
       'English',
       c.foil ? 'foil' : '',

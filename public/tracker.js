@@ -1670,9 +1670,6 @@
         a.download = `order-${order.id}-${selectedFormat}.csv`;
         a.click();
         URL.revokeObjectURL(url);
-        markExported(order.id, true);
-        debouncedSave();
-        renderTracker();
       } finally {
         exportSingleBtn.disabled = false;
         exportSingleBtn.textContent = originalText;

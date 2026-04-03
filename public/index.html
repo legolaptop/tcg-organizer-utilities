@@ -153,10 +153,17 @@
           <div class="section-header">
             <span class="section-label">Export Received Cards</span>
             <div class="output-actions">
+              <label for="tracker-export-format" class="hint" style="margin:0;">Format</label>
+              <select id="tracker-export-format" class="btn btn-secondary btn-sm" aria-label="Select CSV export format">
+                <option value="moxfield" selected>Moxfield</option>
+                <option value="archidekt">Archidekt</option>
+                <option value="deckbox">Deckbox</option>
+                <option value="generic">Generic</option>
+              </select>
               <button id="tracker-export-btn" class="btn btn-primary btn-sm">Download CSV</button>
             </div>
           </div>
-          <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) for Moxfield.</p>
+          <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) in the selected site format.</p>
         </div>
 
       </div><!-- /tracker-section -->

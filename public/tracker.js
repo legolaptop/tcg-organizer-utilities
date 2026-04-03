@@ -67,6 +67,7 @@
   const ordersList = document.getElementById('orders-list');
   const noOrders = document.getElementById('no-orders');
   const exportSection = document.getElementById('tracker-export-section');
+  const exportFormat = document.getElementById('tracker-export-format');
   const exportBtn = document.getElementById('tracker-export-btn');
     const toggleAllBtn = document.getElementById('toggle-all-btn');
 
@@ -1176,30 +1177,103 @@
       alert('No received cards to export yet.');
       return;
     }
-    const csv = formatCardsToCSV(receivedCards);
+    const selectedFormat = exportFormat ? exportFormat.value : 'generic';
+    const csv = formatCardsToCSV(receivedCards, selectedFormat);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'received-cards.csv';
+    a.download = `received-cards-${selectedFormat}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   });
 
-  function formatCardsToCSV(cards) {
+  function formatCardsToCSV(cards, format) {
+    const kind = String(format || 'generic').toLowerCase();
+    switch (kind) {
+      case 'moxfield':
+        return formatCardsToMoxfieldCSV(cards);
+      case 'archidekt':
+        return formatCardsToArchidektCSV(cards);
+      case 'deckbox':
+        return formatCardsToDeckboxCSV(cards);
+      default:
+        return formatCardsToGenericCSV(cards);
+    }
+  }
+
+  function formatCardsToGenericCSV(cards) {
     const header = 'Name,Set name,Condition,Foil,Quantity,Purchase price';
-    const rows = cards.map(c => {
-      const fields = [
-        csvField(c.name || ''),
-        csvField(c.set || ''),
-        csvField(c.condition || 'Near Mint'),
-        c.foil ? 'foil' : '',
-        c.quantity != null ? c.quantity : 1,
-        c.price > 0 ? c.price.toFixed(2) : '',
-      ];
-      return fields.join(',');
-    });
+    const rows = cards.map(c => [
+      csvField(c.name || ''),
+      csvField(c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      c.foil ? 'foil' : '',
+      c.quantity != null ? c.quantity : 1,
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
     return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToMoxfieldCSV(cards) {
+    const header = 'Count,Name,Edition,Condition,Language,Foil,Collector Number,Alter,Playtest Card,Purchase Price';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      csvField(c.name || ''),
+      csvField(c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      'English',
+      c.foil ? 'foil' : '',
+      '',
+      '',
+      'FALSE',
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToArchidektCSV(cards) {
+    const header = 'Quantity,Name,Edition,Condition,Foil,Purchase Price';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      csvField(c.name || ''),
+      csvField(c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      c.foil ? 'foil' : '',
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToDeckboxCSV(cards) {
+    const header = 'Count,Tradelist Count,Name,Edition,Card Number,Condition,Language,Foil,Signed,Artist Proof,Altered Art,Misprint,Promo,Textless';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      '',
+      csvField(c.name || ''),
+      csvField(c.set || ''),
+      '',
+      csvField(toShortCondition(c.condition || 'Near Mint')),
+      'English',
+      c.foil ? 'foil' : '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function toShortCondition(condition) {
+    const value = String(condition || '').trim().toLowerCase();
+    if (value.startsWith('near mint') || value === 'nm') return 'NM';
+    if (value.startsWith('lightly played') || value === 'lp') return 'LP';
+    if (value.startsWith('moderately played') || value === 'mp' || value === 'played') return 'MP';
+    if (value.startsWith('heavily played') || value === 'hp') return 'HP';
+    if (value.startsWith('damaged') || value === 'd' || value === 'dm') return 'D';
+    return condition;
   }
 
   function csvField(value) {

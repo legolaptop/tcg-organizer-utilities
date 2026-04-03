@@ -1215,6 +1215,9 @@
   function onPageReady() {
     initGoogleAuth();
     setAuthStatus('disconnected');
+    const tabParam = new URLSearchParams(window.location.search).get('t');
+    const initialTab = tabParam === 'converter' ? 'converter' : 'tracker';
+    showTab(initialTab);
     renderTracker();
   }
 

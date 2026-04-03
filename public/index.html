@@ -18,14 +18,14 @@
       </p>
       <!-- Tab navigation -->
       <nav class="tab-nav" role="tablist">
-        <button class="tab-btn tab-btn--active" id="nav-converter" role="tab" aria-selected="true" aria-controls="converter-section">CSV Converter</button>
-        <button class="tab-btn" id="nav-tracker" role="tab" aria-selected="false" aria-controls="tracker-section">Order Tracker</button>
+        <button class="tab-btn" id="nav-converter" role="tab" aria-selected="false" aria-controls="converter-section">CSV Converter</button>
+        <button class="tab-btn tab-btn--active" id="nav-tracker" role="tab" aria-selected="true" aria-controls="tracker-section">Order Tracker</button>
       </nav>
     </header>
 
     <main>
       <!-- ── CSV Converter ──────────────────────────────────── -->
-      <div id="converter-section" role="tabpanel">
+      <div id="converter-section" role="tabpanel" hidden>
 
       <!-- Input section -->
       <section class="card" id="input-section">
@@ -83,7 +83,7 @@
       </div><!-- /converter-section -->
 
       <!-- ── Order Tracker ──────────────────────────────────── -->
-      <div id="tracker-section" role="tabpanel" hidden>
+      <div id="tracker-section" role="tabpanel">
 
         <!-- Drive auth control — compact, top-right -->
         <div id="drive-auth-control" class="drive-auth-control" data-status="disconnected">

@@ -91,7 +91,13 @@
         <!-- File upload for tracker -->
         <section class="card" id="tracker-upload-section">
           <div class="tracker-upload-head">
-            <span class="section-label">Load Orders from File</span>
+            <div class="section-label section-label--inline">
+              <span>Load Orders from File</span>
+              <span class="upload-help-trigger" tabindex="0" role="button" aria-label="How to save a TCGPlayer order-history file">
+                ?
+                <span class="upload-help-tooltip">Open your TCGPlayer Order History page, then use Save Page As and choose .mht, .mhtml, or .html.</span>
+              </span>
+            </div>
             <div id="drive-auth-control" class="drive-auth-control" data-status="disconnected">
               <span id="drive-auth-status" class="drive-auth-status" hidden></span>
               <button id="drive-connect-btn" class="btn btn-secondary btn-sm">Connect Google Drive</button>
@@ -99,10 +105,6 @@
             </div>
           </div>
           <p class="hint">Choose one or more TCGPlayer order-history files to populate the tracker.</p>
-          <details class="upload-help">
-            <summary>How to save a TCGPlayer order-history file</summary>
-            <p>Open your TCGPlayer Order History page in your browser, then use Save Page As and choose .mht, .mhtml, or .html.</p>
-          </details>
           <div class="file-upload">
             <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
             <button id="tracker-parse-btn" class="btn btn-secondary">Load now</button>

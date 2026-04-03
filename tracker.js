@@ -1366,15 +1366,15 @@
     const active = orderArr.filter(o => !o.canceled);
     switch (filter) {
       case 'incoming':
-        return active.filter(o => !(state[o.id] && state[o.id].received));
+        return active.filter(o => !(state[o.id] && state[o.id].received) && !(state[o.id] && state[o.id].exported));
       case 'overdue':
-        return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today));
+        return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today) && !(state[o.id] && state[o.id].exported));
       case 'received':
         return active.filter(o => state[o.id] && state[o.id].received);
       case 'exported':
         return active.filter(o => state[o.id] && state[o.id].exported);
       default:
-        return active;
+        return active.filter(o => !(state[o.id] && state[o.id].exported));
     }
   }
 

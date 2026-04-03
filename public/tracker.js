@@ -512,7 +512,6 @@
   function parseOrderFromElement(orderEl) {
     const id = extractOrderId(orderEl);
     if (!id) return null;
-    const orderUrl = extractOrderUrl(orderEl, id);
     const seller = extractSeller(orderEl);
     const date = extractOrderDate(orderEl);
     const estimatedDelivery = extractEstimatedDelivery(orderEl);
@@ -526,27 +525,7 @@
       console.warn(`parseOrderFromElement: No cards found for order ${id}`);
       return null;
     }
-    return { id, orderUrl, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
-  }
-
-  function extractOrderUrl(orderEl, orderId) {
-    const links = orderEl.querySelectorAll('a[href]');
-    for (const link of links) {
-      const href = (link.getAttribute('href') || '').trim();
-      if (!href) continue;
-      if (/order|details|invoice|history/i.test(href) || (orderId && href.includes(orderId))) {
-        return normalizeTcgUrl(href);
-      }
-    }
-    return null;
-  }
-
-  function normalizeTcgUrl(href) {
-    if (!href) return null;
-    if (/^https?:\/\//i.test(href)) return href;
-    if (href.startsWith('//')) return `https:${href}`;
-    if (href.startsWith('/')) return `https://www.tcgplayer.com${href}`;
-    return `https://www.tcgplayer.com/${href.replace(/^\.?\//, '')}`;
+    return { id, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
   }
 
   function extractOrderId(orderEl) {
@@ -936,14 +915,9 @@
     const info = document.createElement('div');
     info.className = 'order-card__info';
 
-    const idEl = order.orderUrl ? document.createElement('a') : document.createElement('span');
+    const idEl = document.createElement('span');
     idEl.className = 'order-card__id';
     idEl.textContent = order.id;
-    if (order.orderUrl) {
-      idEl.href = order.orderUrl;
-      idEl.target = '_blank';
-      idEl.rel = 'noopener noreferrer';
-    }
 
     const sellerEl = document.createElement('span');
     sellerEl.className = 'order-card__seller';

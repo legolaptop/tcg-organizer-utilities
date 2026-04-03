@@ -15,6 +15,7 @@
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';
   const DRIVE_AUTOCONNECT_KEY = 'tcg-tracker-drive-autoconnect';
+  const AUTH_REQUEST_TIMEOUT_MS = 6000;
   const SAVE_DEBOUNCE_MS = 500;
 
   // ── Auth state ────────────────────────────────────────────────
@@ -26,6 +27,8 @@
 
   let tokenClient = null;   // google.accounts.oauth2.TokenClient
   let driveFileId = null;
+  let authRequestTimer = null;
+  let authRequestMode = null; // 'silent' | 'interactive' | null
 
   function isAuthenticated() {
     return (
@@ -120,9 +123,12 @@
    * @param {google.accounts.oauth2.TokenResponse} response
    */
   async function handleTokenResponse(response) {
+    clearAuthRequestTimeout();
+
     if (response.error) {
       console.error('OAuth error:', response.error);
-      setAuthStatus('error');
+      setAuthStatus(authRequestMode === 'silent' ? 'disconnected' : 'error');
+      authRequestMode = null;
       return;
     }
 
@@ -133,6 +139,7 @@
 
     setAuthStatus('connected');
     setDriveAutoconnectEnabled(true);
+    authRequestMode = null;
 
     // Load Drive state now that we have a valid token
     try {
@@ -147,7 +154,7 @@
    * Connect to Google Drive. Shows the OAuth consent popup if needed.
    * If already authenticated, loads Drive state immediately.
    */
-  async function connectGoogleDrive() {
+  async function connectGoogleDrive(mode = 'interactive') {
     if (!window.google || !tokenClient) {
       setAuthStatus('error');
       return;
@@ -165,16 +172,18 @@
       return;
     }
 
+    authRequestMode = mode;
     setAuthStatus('connecting');
-    // prompt: '' requests a new token silently if consent was previously granted,
-    // or shows the consent popup if it is the first time.
-    tokenClient.requestAccessToken({ prompt: '' });
+    startAuthRequestTimeout(mode);
+    tokenClient.requestAccessToken({ prompt: mode === 'silent' ? '' : 'consent' });
   }
 
   /**
    * Disconnect from Google Drive. Revokes the token and clears auth state.
    */
   function disconnectGoogleDrive() {
+    clearAuthRequestTimeout();
+    authRequestMode = null;
     if (authState.accessToken) {
       google.accounts.oauth2.revoke(authState.accessToken, () => {
         console.log('Token revoked');
@@ -204,7 +213,13 @@
     // Token expired — request a new one silently
     return new Promise((resolve, reject) => {
       const originalCallback = tokenClient.callback;
+      const timer = setTimeout(() => {
+        tokenClient.callback = originalCallback;
+        reject(new Error('Token refresh timed out'));
+      }, AUTH_REQUEST_TIMEOUT_MS);
+
       tokenClient.callback = (response) => {
+        clearTimeout(timer);
         tokenClient.callback = originalCallback;
         if (response.error) {
           reject(new Error(response.error));
@@ -216,6 +231,22 @@
       };
       tokenClient.requestAccessToken({ prompt: '' });
     });
+  }
+
+  function clearAuthRequestTimeout() {
+    if (authRequestTimer) {
+      clearTimeout(authRequestTimer);
+      authRequestTimer = null;
+    }
+  }
+
+  function startAuthRequestTimeout(mode) {
+    clearAuthRequestTimeout();
+    authRequestTimer = setTimeout(() => {
+      authRequestTimer = null;
+      authRequestMode = null;
+      setAuthStatus(mode === 'silent' ? 'disconnected' : 'error');
+    }, AUTH_REQUEST_TIMEOUT_MS);
   }
 
   /**
@@ -260,7 +291,7 @@
   }
 
   // Wire up Connect / Disconnect buttons
-  driveConnectBtn.addEventListener('click', () => connectGoogleDrive());
+  driveConnectBtn.addEventListener('click', () => connectGoogleDrive('interactive'));
   driveDisconnectBtn.addEventListener('click', () => disconnectGoogleDrive());
 
   // ── Drive persistence ─────────────────────────────────────────
@@ -1505,7 +1536,7 @@
     showTab(initialTab);
     renderTracker();
     if (getDriveAutoconnectEnabled()) {
-      connectGoogleDrive().catch((e) => {
+      connectGoogleDrive('silent').catch((e) => {
         console.error('Auto-connect failed:', e);
       });
     }

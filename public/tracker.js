@@ -214,6 +214,7 @@
     // Load Drive state now that we have a valid token
     try {
       applyDrivePayload(await loadStateFromDrive());
+      refreshScryfallLinksFromLoadedOrders();
     } catch (e) {
       console.error('Failed to load state from Drive:', e);
     }
@@ -245,6 +246,7 @@
       setDriveAutoconnectEnabled(true);
       try {
         applyDrivePayload(await loadStateFromDrive());
+        refreshScryfallLinksFromLoadedOrders();
       } catch (e) {
         console.error('Failed to load state from Drive:', e);
       }
@@ -431,9 +433,10 @@
 
   async function saveStateToDrive() {
     if (!isAuthenticated()) return;
+    const normalizedOrders = normalizeOrderArray(orders);
     const body = JSON.stringify({
       version: 2,
-      orders,
+      orders: normalizedOrders,
       trackerState,
     });
 
@@ -497,7 +500,7 @@
     }
 
     return {
-      orders: Array.isArray(payload.orders) ? payload.orders : [],
+      orders: normalizeOrderArray(Array.isArray(payload.orders) ? payload.orders : []),
       trackerState: payload.trackerState && typeof payload.trackerState === 'object' ? payload.trackerState : {},
     };
   }
@@ -512,12 +515,139 @@
   function mergeOrders(primaryOrders, secondaryOrders) {
     const merged = new Map();
     (Array.isArray(primaryOrders) ? primaryOrders : []).forEach(order => {
-      if (order && order.id) merged.set(order.id, order);
+      if (!order || !order.id) return;
+      const existing = merged.get(order.id);
+      merged.set(order.id, existing ? mergeOrderRecords(existing, order) : order);
     });
     (Array.isArray(secondaryOrders) ? secondaryOrders : []).forEach(order => {
-      if (order && order.id && !merged.has(order.id)) merged.set(order.id, order);
+      if (!order || !order.id) return;
+      const existing = merged.get(order.id);
+      merged.set(order.id, existing ? mergeOrderRecords(existing, order) : order);
     });
     return Array.from(merged.values());
+  }
+
+  function refreshScryfallLinksFromLoadedOrders() {
+    hydrateScryfallForOrderCards(orders)
+      .then((resolvedCount) => {
+        if (resolvedCount > 0) {
+          if (isAuthenticated()) debouncedSave();
+          renderTracker();
+        }
+      })
+      .catch((err) => {
+        console.warn('Unable to refresh Scryfall enrichment after Drive load.', err);
+      });
+  }
+
+  function normalizeOrderArray(orderArr) {
+    return (Array.isArray(orderArr) ? orderArr : [])
+      .map(normalizeOrderRecord)
+      .filter(order => !!order && !!order.id);
+  }
+
+  function normalizeOrderRecord(order) {
+    if (!order || typeof order !== 'object') return null;
+    return {
+      ...order,
+      orderSummary: normalizeOrderSummary(order.orderSummary),
+      cards: Array.isArray(order.cards) ? order.cards.map(normalizeCardRecord).filter(Boolean) : [],
+    };
+  }
+
+  function normalizeOrderSummary(summary) {
+    const src = summary && typeof summary === 'object' ? summary : {};
+    return {
+      quantity: Number.isFinite(src.quantity) ? src.quantity : 0,
+      subtotal: Number.isFinite(src.subtotal) ? src.subtotal : 0,
+      shipping: Number.isFinite(src.shipping) ? src.shipping : 0,
+      salesTax: Number.isFinite(src.salesTax) ? src.salesTax : 0,
+      total: Number.isFinite(src.total) ? src.total : 0,
+    };
+  }
+
+  function normalizeCardRecord(card) {
+    if (!card || typeof card !== 'object') return null;
+    return {
+      ...card,
+      tcgplayerId: typeof card.tcgplayerId === 'string' ? card.tcgplayerId : null,
+      setCode: typeof card.setCode === 'string' ? card.setCode : '',
+      collectorNumber: typeof card.collectorNumber === 'string' ? card.collectorNumber : '',
+      scryfallId: typeof card.scryfallId === 'string' ? card.scryfallId : '',
+      scryfallUri: typeof card.scryfallUri === 'string' ? card.scryfallUri : '',
+    };
+  }
+
+  function mergeOrderRecords(a, b) {
+    const primary = orderRichnessScore(a) >= orderRichnessScore(b) ? a : b;
+    const secondary = primary === a ? b : a;
+    return {
+      ...secondary,
+      ...primary,
+      orderSummary: mergeOrderSummary(primary.orderSummary, secondary.orderSummary),
+      cards: mergeCards(primary.cards, secondary.cards),
+    };
+  }
+
+  function mergeOrderSummary(a, b) {
+    const first = normalizeOrderSummary(a);
+    const second = normalizeOrderSummary(b);
+    return {
+      quantity: first.quantity > 0 ? first.quantity : second.quantity,
+      subtotal: first.subtotal > 0 ? first.subtotal : second.subtotal,
+      shipping: first.shipping > 0 ? first.shipping : second.shipping,
+      salesTax: first.salesTax > 0 ? first.salesTax : second.salesTax,
+      total: first.total > 0 ? first.total : second.total,
+    };
+  }
+
+  function mergeCards(primaryCards, secondaryCards) {
+    const byKey = new Map();
+    const primary = Array.isArray(primaryCards) ? primaryCards : [];
+    const secondary = Array.isArray(secondaryCards) ? secondaryCards : [];
+
+    primary.forEach((card) => {
+      const normalized = normalizeCardRecord(card);
+      if (!normalized) return;
+      byKey.set(cardKey(normalized), normalized);
+    });
+
+    secondary.forEach((card) => {
+      const normalized = normalizeCardRecord(card);
+      if (!normalized) return;
+      const key = cardKey(normalized);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, normalized);
+        return;
+      }
+      byKey.set(key, {
+        ...existing,
+        ...normalized,
+        tcgplayerId: existing.tcgplayerId || normalized.tcgplayerId,
+        setCode: existing.setCode || normalized.setCode,
+        collectorNumber: existing.collectorNumber || normalized.collectorNumber,
+        scryfallId: existing.scryfallId || normalized.scryfallId,
+        scryfallUri: existing.scryfallUri || normalized.scryfallUri,
+      });
+    });
+
+    return Array.from(byKey.values());
+  }
+
+  function orderRichnessScore(order) {
+    if (!order || typeof order !== 'object') return 0;
+    let score = 0;
+    const summary = normalizeOrderSummary(order.orderSummary);
+    if (summary.total > 0) score += 4;
+    if (summary.subtotal > 0) score += 1;
+    if (summary.quantity > 0) score += 1;
+    const cards = Array.isArray(order.cards) ? order.cards : [];
+    cards.forEach((card) => {
+      if (card && card.tcgplayerId) score += 1;
+      if (card && (card.scryfallUri || card.scryfallId || (card.setCode && card.collectorNumber))) score += 1;
+    });
+    return score;
   }
 
   function setDriveAutoconnectEnabled(enabled) {
@@ -667,25 +797,43 @@
       const updates = diffShippingStatus(orders, freshOrders);
       const { updatedCount } = applyShippingUpdates(trackerState, updates, orders);
 
-      // Merge: add new orders that weren't previously loaded
-      const existingIds = new Set(orders.map(o => o.id));
-      const newOrders = freshOrders.filter(o => !existingIds.has(o.id));
-      const visibleNewOrders = newOrders.filter(o => !o.canceled);
-      orders = [...orders, ...visibleNewOrders];
+      // Merge: add new orders and upgrade existing orders when new parse is richer.
+      const existingById = new Map(orders.map(o => [o.id, o]));
+      const visibleFresh = freshOrders.filter(o => !o.canceled);
+      const newOrders = [];
+      let upgradedCount = 0;
+      visibleFresh.forEach((incoming) => {
+        const existing = existingById.get(incoming.id);
+        if (!existing) {
+          newOrders.push(incoming);
+          existingById.set(incoming.id, incoming);
+          return;
+        }
+        const merged = mergeOrderRecords(incoming, existing);
+        if (orderRichnessScore(merged) > orderRichnessScore(existing)) {
+          existingById.set(incoming.id, merged);
+          upgradedCount++;
+        }
+      });
+      orders = Array.from(existingById.values());
 
       const parts = [];
-      if (visibleNewOrders.length > 0) parts.push(`${visibleNewOrders.length} new order(s) added`);
+      if (newOrders.length > 0) parts.push(`${newOrders.length} new order(s) added`);
+      if (upgradedCount > 0) parts.push(`${upgradedCount} existing order(s) refreshed`);
       if (updatedCount > 0) parts.push(`shipping updated for ${updatedCount} order(s)`);
       if (parts.length === 0) parts.push('Orders up to date');
       showUploadMsg(parts.join(' · '), false);
 
-      if (updatedCount > 0 || visibleNewOrders.length > 0) debouncedSave();
+      if (updatedCount > 0 || newOrders.length > 0 || upgradedCount > 0) debouncedSave();
 
       renderTracker();
-      if (visibleNewOrders.length > 0) {
-        hydrateScryfallForOrderCards(visibleNewOrders)
+      if (visibleFresh.length > 0) {
+        hydrateScryfallForOrderCards(visibleFresh)
           .then((resolvedCount) => {
-            if (resolvedCount > 0) renderTracker();
+            if (resolvedCount > 0) {
+              if (isAuthenticated()) debouncedSave();
+              renderTracker();
+            }
           })
           .catch((err) => {
             console.warn('Scryfall enrichment unavailable for tracker links.', err);
@@ -1581,15 +1729,16 @@
   }
 
   function getExactPrintingScryfallUrl(card) {
-    if (!card || !card.tcgplayerId) return null;
-    const data = scryfallByTcgplayerId.get(card.tcgplayerId);
-    if (!data) return null;
-    if (data.scryfallUri) return data.scryfallUri;
-    if (data.setCode && data.collectorNumber) {
-      return `https://scryfall.com/card/${encodeURIComponent(data.setCode.toLowerCase())}/${encodeURIComponent(data.collectorNumber)}`;
+    if (!card) return null;
+    const data = card.tcgplayerId ? scryfallByTcgplayerId.get(card.tcgplayerId) : null;
+    const source = data || card;
+    if (!source) return null;
+    if (source.scryfallUri) return source.scryfallUri;
+    if (source.setCode && source.collectorNumber) {
+      return `https://scryfall.com/card/${encodeURIComponent(source.setCode.toLowerCase())}/${encodeURIComponent(source.collectorNumber)}`;
     }
-    if (data.scryfallId) {
-      return `https://scryfall.com/card/${encodeURIComponent(data.scryfallId)}`;
+    if (source.scryfallId) {
+      return `https://scryfall.com/card/${encodeURIComponent(source.scryfallId)}`;
     }
     return null;
   }
@@ -1710,6 +1859,24 @@
     if (ids.length === 0) return 0;
     const before = ids.filter(id => scryfallByTcgplayerId.has(id)).length;
     await fetchAllScryfall(ids);
+    const idToData = new Map();
+    ids.forEach((id) => {
+      const data = scryfallByTcgplayerId.get(id);
+      if (data) idToData.set(id, data);
+    });
+    if (idToData.size > 0) {
+      (orderArr || []).forEach((order) => {
+        (order.cards || []).forEach((card) => {
+          if (!card || !card.tcgplayerId) return;
+          const data = idToData.get(card.tcgplayerId);
+          if (!data) return;
+          card.setCode = card.setCode || data.setCode || '';
+          card.collectorNumber = card.collectorNumber || data.collectorNumber || '';
+          card.scryfallId = card.scryfallId || data.scryfallId || '';
+          card.scryfallUri = card.scryfallUri || data.scryfallUri || '';
+        });
+      });
+    }
     const after = ids.filter(id => scryfallByTcgplayerId.has(id) && scryfallByTcgplayerId.get(id)).length;
     return Math.max(0, after - before);
   }

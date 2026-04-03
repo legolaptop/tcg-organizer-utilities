@@ -94,6 +94,7 @@
   const exportFormat = document.getElementById('tracker-export-format');
   const exportBtn = document.getElementById('tracker-export-btn');
     const toggleAllBtn = document.getElementById('toggle-all-btn');
+  const defaultTrackerParseBtnText = trackerParseBtn.textContent;
 
   // ── Tab navigation ────────────────────────────────────────────
 
@@ -555,9 +556,21 @@
   }
 
   trackerParseBtn.addEventListener('click', async () => {
+    await loadTrackerOrdersFromSelection(true);
+  });
+
+  trackerFileInput.addEventListener('change', async () => {
+    if (!trackerFileInput.files || trackerFileInput.files.length === 0) return;
+    await loadTrackerOrdersFromSelection(false);
+  });
+
+  async function loadTrackerOrdersFromSelection(showMissingFileError) {
+    if (trackerParseBtn.disabled) return;
     const files = trackerFileInput.files;
     if (!files || files.length === 0) {
-      showUploadMsg('Please select one or more MHT/HTML archive files.', true);
+      if (showMissingFileError) {
+        showUploadMsg('Please choose one or more order-history files (.mht, .mhtml, or .html).', true);
+      }
       return;
     }
 
@@ -570,7 +583,8 @@
     }
 
     trackerParseBtn.disabled = true;
-    showUploadMsg('Parsing…', false);
+    trackerParseBtn.textContent = 'Loading…';
+    showUploadMsg('Loading selected files…', false);
 
     try {
       const reads = fileArr.map(
@@ -588,8 +602,8 @@
       const hasAnyValidContent = texts.some(hasExpectedTcgPlayerContent);
       if (!hasAnyValidContent) {
         showUploadMsg(
-          'File does not appear to be a TCGPlayer order history export. ' +
-          'Please upload an MHT or HTML save of your order history page.',
+          'Selected file(s) do not look like TCGPlayer order history. ' +
+          'Save your Order History page as .mht, .mhtml, or .html and try again.',
           true
         );
         return;
@@ -630,8 +644,9 @@
       console.error(e);
     } finally {
       trackerParseBtn.disabled = false;
+      trackerParseBtn.textContent = defaultTrackerParseBtnText;
     }
-  });
+  }
 
   function showUploadMsg(msg, isError) {
     trackerUploadMsg.textContent = msg;

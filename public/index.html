@@ -119,6 +119,7 @@
           <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
           <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
           <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
+          <button class="filter-tab" data-filter="exported" role="tab" aria-selected="false">Exported</button>
           <button id="toggle-all-btn" class="toggle-all-btn">Collapse all</button>
         </div>
 
@@ -160,6 +161,7 @@
         </div>
 
         <!-- Export received cards -->
+        <button id="tracker-export-fab" class="tracker-export-fab" hidden aria-controls="tracker-export-section" aria-expanded="false">Export</button>
         <div id="tracker-export-section" class="card" style="margin-top:1rem;" hidden>
           <div class="section-header">
             <span class="section-label">Export Received Cards</span>
@@ -175,6 +177,10 @@
             </div>
           </div>
           <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) in the selected site format.</p>
+          <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.9rem;">
+            <input id="tracker-export-include-exported" type="checkbox" />
+            <span>Include previously exported orders</span>
+          </label>
         </div>
 
       </div><!-- /tracker-section -->

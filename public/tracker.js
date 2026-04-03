@@ -1017,7 +1017,7 @@
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
 
-    // Canceled checkbox — toggling on clears missing (mutually exclusive)
+    // Refunded checkbox — toggling on clears missing (mutually exclusive)
     const cancelLabel = document.createElement('label');
     cancelLabel.className = 'card-row__check-label';
     const cancelCb = document.createElement('input');
@@ -1030,7 +1030,7 @@
       renderTracker();
     });
     cancelLabel.appendChild(cancelCb);
-    cancelLabel.appendChild(document.createTextNode(' Canceled'));
+    cancelLabel.appendChild(document.createTextNode(' Refunded'));
 
     // Missing checkbox — toggling on clears canceled (mutually exclusive)
     const missingLabel = document.createElement('label');

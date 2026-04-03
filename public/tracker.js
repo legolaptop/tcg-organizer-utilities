@@ -1478,20 +1478,15 @@
   function renderCardRow(card, key, orderId, cs) {
     const li = document.createElement('li');
     const hasIssue = cs.canceled || cs.missing;
-    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}${hasIssue ? ' card-row--open' : ''}`;
+    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}`;
 
     // Left: name + set
     const nameBlock = document.createElement('span');
     nameBlock.className = 'card-row__name';
     const exactPrintingUrl = getExactPrintingScryfallUrl(card);
-    const nameText = exactPrintingUrl ? document.createElement('a') : document.createElement('span');
+    const nameText = document.createElement('span');
     nameText.className = 'card-row__name-text';
     nameText.textContent = card.name;
-    if (exactPrintingUrl) {
-      nameText.href = exactPrintingUrl;
-      nameText.target = '_blank';
-      nameText.rel = 'noopener noreferrer';
-    }
     const setEl = card.set ? document.createElement('span') : null;
     if (setEl) {
       setEl.className = 'card-row__set';
@@ -1525,45 +1520,52 @@
     // Controls (hidden until row is clicked)
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
+    if (exactPrintingUrl) {
+      const scryLink = document.createElement('a');
+      scryLink.className = 'card-row__scryfall-link';
+      scryLink.href = exactPrintingUrl;
+      scryLink.target = '_blank';
+      scryLink.rel = 'noopener noreferrer';
+      scryLink.textContent = 'Scryfall ↗';
+      controls.appendChild(scryLink);
+    }
 
-    // Refunded checkbox — toggling on clears missing (mutually exclusive)
-    const cancelLabel = document.createElement('label');
-    cancelLabel.className = 'card-row__check-label';
-    const cancelCb = document.createElement('input');
-    cancelCb.type = 'checkbox';
-    cancelCb.checked = cs.canceled;
-    cancelCb.addEventListener('change', () => {
-      const currentMissing = getCurrentCardField(orderId, key, 'missing');
-      setCardStateFn(orderId, key, { canceled: cancelCb.checked, missing: cancelCb.checked ? false : currentMissing });
+    const issueGroup = document.createElement('div');
+    issueGroup.className = 'card-row__issue-group';
+    issueGroup.setAttribute('role', 'radiogroup');
+    issueGroup.setAttribute('aria-label', `Card issue status for ${card.name}`);
+
+    const refundBtn = document.createElement('button');
+    refundBtn.type = 'button';
+    refundBtn.className = `card-row__issue-btn${cs.canceled ? ' is-active' : ''}`;
+    refundBtn.setAttribute('role', 'radio');
+    refundBtn.setAttribute('aria-checked', cs.canceled ? 'true' : 'false');
+    refundBtn.textContent = 'Refunded';
+    refundBtn.addEventListener('click', () => {
+      const currentlyCanceled = getCurrentCardField(orderId, key, 'canceled');
+      const nextCanceled = !currentlyCanceled;
+      setCardStateFn(orderId, key, { canceled: nextCanceled, missing: nextCanceled ? false : getCurrentCardField(orderId, key, 'missing') });
       debouncedSave();
       renderTracker();
     });
-    cancelLabel.appendChild(cancelCb);
-    cancelLabel.appendChild(document.createTextNode(' Refunded'));
 
-    // Missing checkbox — toggling on clears canceled (mutually exclusive)
-    const missingLabel = document.createElement('label');
-    missingLabel.className = 'card-row__check-label';
-    const missingCb = document.createElement('input');
-    missingCb.type = 'checkbox';
-    missingCb.checked = cs.missing;
-    missingCb.addEventListener('change', () => {
-      const currentCanceled = getCurrentCardField(orderId, key, 'canceled');
-      setCardStateFn(orderId, key, { missing: missingCb.checked, canceled: missingCb.checked ? false : currentCanceled });
+    const missingBtn = document.createElement('button');
+    missingBtn.type = 'button';
+    missingBtn.className = `card-row__issue-btn${cs.missing ? ' is-active' : ''}`;
+    missingBtn.setAttribute('role', 'radio');
+    missingBtn.setAttribute('aria-checked', cs.missing ? 'true' : 'false');
+    missingBtn.textContent = 'Missing';
+    missingBtn.addEventListener('click', () => {
+      const currentlyMissing = getCurrentCardField(orderId, key, 'missing');
+      const nextMissing = !currentlyMissing;
+      setCardStateFn(orderId, key, { missing: nextMissing, canceled: nextMissing ? false : getCurrentCardField(orderId, key, 'canceled') });
       debouncedSave();
       renderTracker();
     });
-    missingLabel.appendChild(missingCb);
-    missingLabel.appendChild(document.createTextNode(' Missing'));
 
-    controls.appendChild(cancelLabel);
-    controls.appendChild(missingLabel);
-
-    // Toggle controls on row click (but not if clicking a checkbox directly)
-    li.addEventListener('click', (e) => {
-      if (e.target.tagName === 'INPUT') return;
-      li.classList.toggle('card-row--open');
-    });
+    issueGroup.appendChild(refundBtn);
+    issueGroup.appendChild(missingBtn);
+    controls.appendChild(issueGroup);
 
     li.appendChild(nameBlock);
     li.appendChild(meta);

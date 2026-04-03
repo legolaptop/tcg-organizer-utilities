@@ -734,7 +734,7 @@ footer a:hover {
   padding: 0.35rem 0.5rem;
   border-radius: 5px;
   transition: background 0.15s;
-  cursor: default;
+  cursor: pointer;
 }
 
 .card-row:hover {
@@ -768,12 +768,15 @@ footer a:hover {
 }
 
 .card-row__controls {
-  display: inline-flex;
+  display: none;
   align-items: center;
-  justify-content: flex-end;
-  margin-left: auto;
+  justify-content: space-between;
+  width: 100%;
   flex-wrap: wrap;
   gap: 0.75rem;
+  padding: 0.25rem 0 0.1rem 0;
+  border-top: 1px solid #edf2f7;
+  margin-top: 0.2rem;
 }
 
 .card-row__name {
@@ -806,6 +809,10 @@ footer a:hover {
   font-size: 0.76rem;
   font-weight: 600;
   color: #2b4c8c;
+}
+
+.card-row--open .card-row__controls {
+  display: flex;
 }
 
 .card-row__scryfall-link {
@@ -852,11 +859,7 @@ footer a:hover {
 
 @media (max-width: 640px) {
   .card-row__controls {
-    width: 100%;
     justify-content: flex-start;
-    margin-left: 0;
-    padding-top: 0.2rem;
-    border-top: 1px solid #edf2f7;
   }
 }
 

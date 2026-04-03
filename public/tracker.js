@@ -1478,7 +1478,7 @@
   function renderCardRow(card, key, orderId, cs) {
     const li = document.createElement('li');
     const hasIssue = cs.canceled || cs.missing;
-    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}`;
+    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}${hasIssue ? ' card-row--open' : ''}`;
 
     // Left: name + set
     const nameBlock = document.createElement('span');
@@ -1566,6 +1566,13 @@
     issueGroup.appendChild(refundBtn);
     issueGroup.appendChild(missingBtn);
     controls.appendChild(issueGroup);
+
+    // Toggle pop-out controls when clicking row content, but not interactive controls.
+    li.addEventListener('click', (e) => {
+      const interactive = e.target.closest('button, a, input, label');
+      if (interactive) return;
+      li.classList.toggle('card-row--open');
+    });
 
     li.appendChild(nameBlock);
     li.appendChild(meta);

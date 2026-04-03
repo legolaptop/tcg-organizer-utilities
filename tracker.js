@@ -1644,28 +1644,11 @@
     idEl.textContent = `Order ${order.id}`;
     metaRow.appendChild(idEl);
 
-    body.appendChild(metaRow);
-
-    // Partial refund banner
-    if (order.partialRefund !== null && order.partialRefund !== undefined) {
-      const hasAnyCanceled = Object.values(orderState.cards || {}).some(cs => cs.canceled);
-      if (!hasAnyCanceled) {
-        const banner = document.createElement('div');
-        banner.className = 'partial-refund-banner';
-        banner.appendChild(document.createTextNode('\u26a0 Partial refund of '));
-        const refundAmountEl = document.createElement('strong');
-        refundAmountEl.textContent = `$${order.partialRefund.toFixed(2)}`;
-        banner.appendChild(refundAmountEl);
-        banner.appendChild(document.createTextNode(' issued \u2014 identify the affected card(s) below.'));
-        body.appendChild(banner);
-      }
-    }
-
     // Single-order export action (distinct from the global export panel)
     const exportSingleBtn = document.createElement('button');
     exportSingleBtn.type = 'button';
     exportSingleBtn.className = 'order-card__single-export-btn';
-    exportSingleBtn.textContent = orderState.exported ? 'Re-export Order CSV' : 'Export This Order CSV';
+    exportSingleBtn.textContent = 'Export to CSV';
     exportSingleBtn.addEventListener('click', async (event) => {
       event.stopPropagation();
       const orderCards = getReceivedCardsForOrderExport(order, trackerState);
@@ -1695,7 +1678,24 @@
         exportSingleBtn.textContent = originalText;
       }
     });
-    body.appendChild(exportSingleBtn);
+    metaRow.appendChild(exportSingleBtn);
+
+    body.appendChild(metaRow);
+
+    // Partial refund banner
+    if (order.partialRefund !== null && order.partialRefund !== undefined) {
+      const hasAnyCanceled = Object.values(orderState.cards || {}).some(cs => cs.canceled);
+      if (!hasAnyCanceled) {
+        const banner = document.createElement('div');
+        banner.className = 'partial-refund-banner';
+        banner.appendChild(document.createTextNode('\u26a0 Partial refund of '));
+        const refundAmountEl = document.createElement('strong');
+        refundAmountEl.textContent = `$${order.partialRefund.toFixed(2)}`;
+        banner.appendChild(refundAmountEl);
+        banner.appendChild(document.createTextNode(' issued \u2014 identify the affected card(s) below.'));
+        body.appendChild(banner);
+      }
+    }
 
     // Card list
     const cardList = document.createElement('ul');
@@ -1712,15 +1712,27 @@
     const summary = order.orderSummary || {};
     const summaryWrap = document.createElement('div');
     summaryWrap.className = 'order-card__summary-bottom';
-    const summaryEl = document.createElement('div');
-    summaryEl.className = 'order-card__summary';
-    appendSummaryItem(summaryEl, 'Qty', summary.quantity > 0 ? String(summary.quantity) : null);
-    appendSummaryItem(summaryEl, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : null);
-    if (summaryEl.children.length > 0) {
-      summaryWrap.appendChild(summaryEl);
+    const qtyCol = document.createElement('div');
+    qtyCol.className = 'order-card__summary-qty';
+    const qtyLabel = document.createElement('span');
+    qtyLabel.className = 'order-card__summary-qty-label';
+    qtyLabel.textContent = 'Qty';
+    const qtyValue = document.createElement('span');
+    qtyValue.className = 'order-card__summary-qty-value';
+    qtyValue.textContent = summary.quantity > 0 ? String(summary.quantity) : '0';
+    qtyCol.appendChild(qtyLabel);
+    qtyCol.appendChild(qtyValue);
+
+    const totalsCol = document.createElement('div');
+    totalsCol.className = 'order-card__summary-totals';
+    appendSummaryRow(totalsCol, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : '$0.00', true);
+
+    if (totalsCol.children.length > 0) {
+      summaryWrap.appendChild(qtyCol);
+      summaryWrap.appendChild(totalsCol);
       body.appendChild(summaryWrap);
     }
 
@@ -1865,17 +1877,17 @@
     return badge;
   }
 
-  function appendSummaryItem(container, label, value) {
+  function appendSummaryRow(container, label, value, isTotal = false) {
     if (!value) return;
-    const item = document.createElement('span');
-    item.className = 'order-card__summary-item';
+    const item = document.createElement('div');
+    item.className = `order-card__summary-row${isTotal ? ' is-total' : ''}`;
 
     const labelEl = document.createElement('span');
-    labelEl.className = 'order-card__summary-label';
-    labelEl.textContent = `${label}: `;
+    labelEl.className = 'order-card__summary-row-label';
+    labelEl.textContent = label;
 
     const valueEl = document.createElement('span');
-    valueEl.className = 'order-card__summary-value';
+    valueEl.className = 'order-card__summary-row-value';
     valueEl.textContent = value;
 
     item.appendChild(labelEl);

@@ -14,6 +14,7 @@
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';
+  const DRIVE_AUTOCONNECT_KEY = 'tcg-tracker-drive-autoconnect';
   const SAVE_DEBOUNCE_MS = 500;
 
   // ── Auth state ────────────────────────────────────────────────
@@ -131,12 +132,11 @@
     };
 
     setAuthStatus('connected');
+    setDriveAutoconnectEnabled(true);
 
     // Load Drive state now that we have a valid token
     try {
-      const driveState = await loadStateFromDrive();
-      // Merge Drive state over any in-memory state (Drive wins for existing keys)
-      trackerState = Object.assign({}, trackerState, driveState);
+      applyDrivePayload(await loadStateFromDrive());
     } catch (e) {
       console.error('Failed to load state from Drive:', e);
     }
@@ -155,9 +155,9 @@
 
     if (isAuthenticated()) {
       setAuthStatus('connected');
+      setDriveAutoconnectEnabled(true);
       try {
-        const driveState = await loadStateFromDrive();
-        trackerState = Object.assign({}, trackerState, driveState);
+        applyDrivePayload(await loadStateFromDrive());
       } catch (e) {
         console.error('Failed to load state from Drive:', e);
       }
@@ -182,6 +182,7 @@
     }
     authState = { accessToken: null, expiresAt: null };
     driveFileId = null;
+    setDriveAutoconnectEnabled(false);
     setAuthStatus('disconnected');
   }
 
@@ -282,12 +283,16 @@
       { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
     );
     if (!contentRes.ok) throw new Error(`Drive read failed: ${contentRes.status}`);
-    return await contentRes.json();
+    return normalizeDrivePayload(await contentRes.json());
   }
 
   async function saveStateToDrive() {
     if (!isAuthenticated()) return;
-    const body = JSON.stringify(trackerState);
+    const body = JSON.stringify({
+      version: 2,
+      orders,
+      trackerState,
+    });
 
     try {
       const token = await getValidAccessToken();
@@ -336,6 +341,60 @@
     setSaveStatus('saving');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveStateToDrive(), SAVE_DEBOUNCE_MS);
+  }
+
+  function normalizeDrivePayload(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { orders: [], trackerState: {} };
+    }
+
+    // Backward compatibility: old payloads stored trackerState directly.
+    if (!Object.prototype.hasOwnProperty.call(payload, 'orders') && !Object.prototype.hasOwnProperty.call(payload, 'trackerState')) {
+      return { orders: [], trackerState: payload };
+    }
+
+    return {
+      orders: Array.isArray(payload.orders) ? payload.orders : [],
+      trackerState: payload.trackerState && typeof payload.trackerState === 'object' ? payload.trackerState : {},
+    };
+  }
+
+  function applyDrivePayload(payload) {
+    const normalized = normalizeDrivePayload(payload);
+    const mergedOrders = mergeOrders(normalized.orders, orders);
+    orders = mergedOrders;
+    trackerState = Object.assign({}, trackerState, normalized.trackerState);
+  }
+
+  function mergeOrders(primaryOrders, secondaryOrders) {
+    const merged = new Map();
+    (Array.isArray(primaryOrders) ? primaryOrders : []).forEach(order => {
+      if (order && order.id) merged.set(order.id, order);
+    });
+    (Array.isArray(secondaryOrders) ? secondaryOrders : []).forEach(order => {
+      if (order && order.id && !merged.has(order.id)) merged.set(order.id, order);
+    });
+    return Array.from(merged.values());
+  }
+
+  function setDriveAutoconnectEnabled(enabled) {
+    try {
+      if (enabled) {
+        localStorage.setItem(DRIVE_AUTOCONNECT_KEY, '1');
+      } else {
+        localStorage.removeItem(DRIVE_AUTOCONNECT_KEY);
+      }
+    } catch {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function getDriveAutoconnectEnabled() {
+    try {
+      return localStorage.getItem(DRIVE_AUTOCONNECT_KEY) === '1';
+    } catch {
+      return false;
+    }
   }
 
   function setSaveStatus(status) {
@@ -403,7 +462,7 @@
       if (parts.length === 0) parts.push('Orders up to date');
       showUploadMsg(parts.join(' · '), false);
 
-      if (updatedCount > 0) debouncedSave();
+      if (updatedCount > 0 || visibleNewOrders.length > 0) debouncedSave();
 
       renderTracker();
     } catch (e) {
@@ -1445,6 +1504,11 @@
     const initialTab = tabParam === 'converter' ? 'converter' : 'tracker';
     showTab(initialTab);
     renderTracker();
+    if (getDriveAutoconnectEnabled()) {
+      connectGoogleDrive().catch((e) => {
+        console.error('Auto-connect failed:', e);
+      });
+    }
   }
 
   if (document.readyState === 'loading') {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TCG Order → CSV Converter</title>
+  <title>TCG Order Tracker + CSV Export</title>
   <link rel="stylesheet" href="style.css" />
   <!-- Google Identity Services for OAuth -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -11,15 +11,15 @@
 <body>
   <div class="container">
     <header>
-      <h1>TCG Order → CSV</h1>
+      <h1>TCG Order Tracker</h1>
       <p class="subtitle">
-        Paste an unformatted order or card list from TCGPlayer (or similar) and
-        convert it to a clean CSV ready for Moxfield, Archidekt, Deckbox, and more.
+        Upload TCGPlayer order-history files, track delivery and receive status,
+        flag missing or refunded cards, and export only your received cards to CSV.
       </p>
       <!-- Tab navigation -->
       <nav class="tab-nav" role="tablist">
-        <button class="tab-btn" id="nav-converter" role="tab" aria-selected="false" aria-controls="converter-section">CSV Converter</button>
         <button class="tab-btn tab-btn--active" id="nav-tracker" role="tab" aria-selected="true" aria-controls="tracker-section">Order Tracker</button>
+        <button class="tab-btn" id="nav-converter" role="tab" aria-selected="false" aria-controls="converter-section">CSV Converter</button>
       </nav>
     </header>
 

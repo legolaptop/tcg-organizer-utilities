@@ -1010,8 +1010,17 @@
     // Right: condition / foil / price
     const meta = document.createElement('span');
     meta.className = 'card-row__meta';
-    meta.textContent = [card.condition, card.foil ? 'Foil' : '', card.price > 0 ? `$${card.price.toFixed(2)}` : '']
-      .filter(Boolean).join(' · ');
+    const metaText = [card.condition, card.foil ? 'Foil' : ''].filter(Boolean).join(' · ');
+    if (metaText) {
+      meta.appendChild(document.createTextNode(metaText));
+    }
+    if (card.price > 0) {
+      if (metaText) meta.appendChild(document.createTextNode(' · '));
+      const priceEl = document.createElement('span');
+      priceEl.className = 'card-row__price';
+      priceEl.textContent = `$${card.price.toFixed(2)}`;
+      meta.appendChild(priceEl);
+    }
 
     // Controls (hidden until row is clicked)
     const controls = document.createElement('div');

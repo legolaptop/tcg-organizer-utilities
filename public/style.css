@@ -576,7 +576,8 @@ footer a:hover {
 
 .card-row--canceled .card-row__name-text,
 .card-row--canceled .card-row__set,
-.card-row--canceled .card-row__meta {
+.card-row--canceled .card-row__meta,
+.card-row--canceled .card-row__price {
   text-decoration: line-through;
   color: #a0aec0;
 }
@@ -588,7 +589,8 @@ footer a:hover {
 
 .card-row--missing .card-row__name-text,
 .card-row--missing .card-row__set,
-.card-row--missing .card-row__meta {
+.card-row--missing .card-row__meta,
+.card-row--missing .card-row__price {
   text-decoration: line-through;
   color: #a0aec0;
 }
@@ -626,6 +628,12 @@ footer a:hover {
   font-size: 0.76rem;
   color: #718096;
   white-space: nowrap;
+}
+
+.card-row__price {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #2b4c8c;
 }
 
 .card-row--open .card-row__controls {

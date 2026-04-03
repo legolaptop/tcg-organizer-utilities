@@ -14,6 +14,51 @@
   const parseFilesBtn = document.getElementById('parse-files-btn');
 
   const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB per file
+  const SCRYFALL_CONCURRENCY = 2;
+  const SCRYFALL_MAX_RETRIES = 2;
+  const SCRYFALL_BASE_BACKOFF_MS = 1000;
+
+  const sharedScryfallState = getSharedScryfallSessionState();
+  const scryfallByTcgplayerId = sharedScryfallState.byTcgplayerId;
+  const scryfallInFlightByTcgplayerId = sharedScryfallState.inFlightByTcgplayerId;
+
+  function getSharedScryfallSessionState() {
+    if (!window.__tcgScryfallSessionState) {
+      window.__tcgScryfallSessionState = {
+        byTcgplayerId: new Map(),
+        inFlightByTcgplayerId: new Map(),
+        backoffUntilMs: 0,
+      };
+    }
+    return window.__tcgScryfallSessionState;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
+  }
+
+  function parseRetryAfterMs(headerValue) {
+    if (!headerValue) return 0;
+    const trimmed = String(headerValue).trim();
+    const seconds = parseInt(trimmed, 10);
+    if (!Number.isNaN(seconds) && seconds > 0) return seconds * 1000;
+    const parsedDate = Date.parse(trimmed);
+    if (!Number.isNaN(parsedDate)) return Math.max(0, parsedDate - Date.now());
+    return 0;
+  }
+
+  function normalizeScryfallCardData(tcgId, json) {
+    return {
+      id: tcgId,
+      name: json.name || '',
+      setCode: (json.set || '').toUpperCase(),
+      setName: json.set_name || '',
+      collectorNumber: json.collector_number || '',
+      rarity: json.rarity || '',
+      scryfallId: json.id || '',
+      scryfallUri: json.scryfall_uri || '',
+    };
+  }
 
   // ── Convert ─────────────────────────────────────────────────
   convertBtn.addEventListener('click', async () => {
@@ -277,41 +322,76 @@
    * Fetch Scryfall card data for a single TCGPlayer product id.
    * Returns card data object or null on failure.
    */
-  async function fetchScryfallByTcgplayerId(tcgId) {
+  async function fetchScryfallByTcgplayerId(tcgId, attempt = 0) {
+    const now = Date.now();
+    if (sharedScryfallState.backoffUntilMs > now) {
+      await sleep(sharedScryfallState.backoffUntilMs - now);
+    }
     try {
       const res = await fetch(`https://api.scryfall.com/cards/tcgplayer/${tcgId}`, {
         signal: AbortSignal.timeout(8000),
       });
+      if (res.status === 429) {
+        const retryAfterMs = parseRetryAfterMs(res.headers.get('retry-after'));
+        const exponentialMs = SCRYFALL_BASE_BACKOFF_MS * (2 ** Math.min(attempt, 3));
+        const backoffMs = Math.max(retryAfterMs, exponentialMs);
+        sharedScryfallState.backoffUntilMs = Date.now() + backoffMs;
+        if (attempt < SCRYFALL_MAX_RETRIES) {
+          await sleep(backoffMs);
+          return fetchScryfallByTcgplayerId(tcgId, attempt + 1);
+        }
+        return null;
+      }
+      sharedScryfallState.backoffUntilMs = 0;
       if (!res.ok) return null;
       const json = await res.json();
-      return {
-        id: tcgId,
-        name: json.name,
-        setCode: (json.set || '').toUpperCase(),
-        setName: json.set_name || '',
-        collectorNumber: json.collector_number || '',
-        rarity: json.rarity || '',
-        scryfallId: json.id || '',
-      };
+      return normalizeScryfallCardData(tcgId, json);
     } catch {
+      if (attempt < 1) {
+        await sleep(SCRYFALL_BASE_BACKOFF_MS);
+        return fetchScryfallByTcgplayerId(tcgId, attempt + 1);
+      }
       return null;
     }
+  }
+
+  async function fetchScryfallByTcgplayerIdCached(tcgId) {
+    if (!tcgId) return null;
+    if (scryfallByTcgplayerId.has(tcgId)) return scryfallByTcgplayerId.get(tcgId);
+    if (scryfallInFlightByTcgplayerId.has(tcgId)) {
+      return scryfallInFlightByTcgplayerId.get(tcgId);
+    }
+    const promise = fetchScryfallByTcgplayerId(tcgId)
+      .then((card) => {
+        scryfallByTcgplayerId.set(tcgId, card);
+        return card;
+      })
+      .catch(() => {
+        scryfallByTcgplayerId.set(tcgId, null);
+        return null;
+      })
+      .finally(() => {
+        scryfallInFlightByTcgplayerId.delete(tcgId);
+      });
+    scryfallInFlightByTcgplayerId.set(tcgId, promise);
+    return promise;
   }
 
   /**
    * Concurrency-limited runner for fetching Scryfall results.
    * Returns Map<id, cardData|null>.
    */
-  async function fetchAllScryfall(ids, concurrency = 6) {
+  async function fetchAllScryfall(ids, concurrency = SCRYFALL_CONCURRENCY) {
     const results = new Map();
-    const idArr = Array.from(ids);
+    const idArr = Array.from(new Set((ids || []).filter(id => typeof id === 'string' && id.trim() !== '')));
+    if (idArr.length === 0) return results;
     let cursor = 0;
 
     async function worker() {
       while (cursor < idArr.length) {
         const i = cursor++;
         const id = idArr[i];
-        const card = await fetchScryfallByTcgplayerId(id);
+        const card = await fetchScryfallByTcgplayerIdCached(id);
         results.set(id, card);
       }
     }

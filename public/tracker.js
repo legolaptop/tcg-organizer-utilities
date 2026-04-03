@@ -889,9 +889,9 @@
     // Expand/collapse button
     const expandBtn = document.createElement('button');
     expandBtn.className = 'order-card__expand-btn';
-    expandBtn.setAttribute('aria-expanded', 'false');
+    expandBtn.setAttribute('aria-expanded', 'true');
     expandBtn.setAttribute('aria-label', `Toggle details for order ${order.id}`);
-    expandBtn.textContent = '▸ Details';
+    expandBtn.textContent = '▾ Details';
 
     header.appendChild(receivedLabel);
     header.appendChild(info);
@@ -902,7 +902,7 @@
     // ── Body (expanded) ────────────────────────────────────────
     const body = document.createElement('div');
     body.className = 'order-card__body';
-    body.hidden = true;
+    body.hidden = false;
 
     // Partial refund banner
     if (order.partialRefund !== null && order.partialRefund !== undefined) {

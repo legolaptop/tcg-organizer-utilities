@@ -884,8 +884,8 @@
 
   function renderOrderCard(order, today) {
     const orderState = trackerState[order.id] || {};
-    const status = getOrderStatus(order, today);
     const isReceived = !!orderState.received;
+    const status = isReceived ? 'standard' : getOrderStatus(order, today);
 
     const card = document.createElement('div');
     card.className = `order-card order-card--${status}${isReceived ? ' order-card--received' : ''}`;

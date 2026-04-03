@@ -15,6 +15,21 @@
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';
   const SAVE_DEBOUNCE_MS = 500;
+  const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB per file
+
+  // Trusted hostnames for carrier/parcel tracking links sourced from uploaded files.
+  // Any tracking URL whose hostname does not match this list is silently dropped —
+  // the tracking number is still shown as plain text.
+  const TRUSTED_TRACKING_HOSTS = [
+    'ups.com',
+    'usps.com',
+    'fedex.com',
+    'dhl.com',
+    'parcelsapp.com',
+    '17track.net',
+    'aftership.com',
+    'stamps.com',
+  ];
 
   // ── Auth state ────────────────────────────────────────────────
   // Tokens are held in memory only — never stored in localStorage or cookies.
@@ -348,7 +363,48 @@
     }
   }
 
-  // ── MHT file upload ───────────────────────────────────────────
+  // ── File validation helpers ───────────────────────────────────
+
+  /**
+   * Returns true if the given URL is from a trusted parcel/carrier tracking host.
+   * Any URL whose protocol is not http(s) or whose hostname is not on the allowlist
+   * is rejected so that arbitrary hrefs from uploaded files cannot become live links.
+   *
+   * @param {string} url - Fully-resolved URL string.
+   * @returns {boolean}
+   */
+  function isTrustedTrackingUrl(url) {
+    if (!url) return false;
+    try {
+      const { hostname, protocol } = new URL(url);
+      if (protocol !== 'https:' && protocol !== 'http:') return false;
+      return TRUSTED_TRACKING_HOSTS.some(
+        d => hostname === d || hostname.endsWith('.' + d)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  // Patterns used to detect TCGPlayer order-history content in uploaded files.
+  const TCG_CONTENT_PATTERNS = [
+    /orderHistoryItems/i,
+    /div-sellerorderwidget/i,
+    /class="orderWrap"/i,
+    /tcgplayer\.com\/product\/\d+/i,
+  ];
+
+  /**
+   * Returns true if the file text contains at least one marker that strongly
+   * suggests TCGPlayer order-history HTML.  Used to reject obviously wrong files
+   * before running the full parser.
+   *
+   * @param {string} text
+   * @returns {boolean}
+   */
+  function hasExpectedTcgPlayerContent(text) {
+    return TCG_CONTENT_PATTERNS.some(re => re.test(text));
+  }
 
   trackerParseBtn.addEventListener('click', async () => {
     const files = trackerFileInput.files;
@@ -357,11 +413,19 @@
       return;
     }
 
+    // Validate file sizes before reading.
+    const fileArr = Array.from(files);
+    const oversized = fileArr.find(f => f.size > MAX_FILE_BYTES);
+    if (oversized) {
+      showUploadMsg(`"${oversized.name}" exceeds the 50 MB limit. Please upload a smaller file.`, true);
+      return;
+    }
+
     trackerParseBtn.disabled = true;
     showUploadMsg('Parsing…', false);
 
     try {
-      const reads = Array.from(files).map(
+      const reads = fileArr.map(
         (f) =>
           new Promise((resolve) => {
             const r = new FileReader();
@@ -372,9 +436,23 @@
       );
       const texts = await Promise.all(reads);
 
+      // Validate content before parsing.
+      const invalidNames = fileArr
+        .filter((f, i) => !hasExpectedTcgPlayerContent(texts[i]))
+        .map(f => f.name);
+      if (invalidNames.length === fileArr.length) {
+        showUploadMsg(
+          'File does not appear to be a TCGPlayer order history export. ' +
+          'Please upload an MHT or HTML save of your order history page.',
+          true
+        );
+        return;
+      }
+
       const freshOrders = [];
-      for (const text of texts) {
-        freshOrders.push(...parseArchiveIntoOrders(text));
+      for (let i = 0; i < texts.length; i++) {
+        if (!hasExpectedTcgPlayerContent(texts[i])) continue;
+        freshOrders.push(...parseArchiveIntoOrders(texts[i]));
       }
 
       if (freshOrders.length === 0) {
@@ -583,7 +661,11 @@
     const link = orderEl.querySelector('a[href*="shipment"]');
     if (link) {
       const m = link.textContent.trim().match(/([A-Z0-9]{10,40})/);
-      if (m) return { number: m[1], url: link.href };
+      if (m) {
+        // Only trust the URL if it resolves to a known carrier/tracking domain.
+        const url = isTrustedTrackingUrl(link.href) ? link.href : null;
+        return { number: m[1], url };
+      }
     }
     const m = orderEl.textContent.match(/(?:Tracking(?:\s+Number)?|Track)[:\s#]+([A-Z0-9]{10,40})/i);
     return m ? { number: m[1], url: null } : null;
@@ -976,7 +1058,11 @@
       if (!hasAnyCanceled) {
         const banner = document.createElement('div');
         banner.className = 'partial-refund-banner';
-        banner.innerHTML = `⚠ Partial refund of <strong>$${order.partialRefund.toFixed(2)}</strong> issued — identify the affected card(s) below.`;
+        banner.appendChild(document.createTextNode('\u26a0 Partial refund of '));
+        const refundAmountEl = document.createElement('strong');
+        refundAmountEl.textContent = `$${order.partialRefund.toFixed(2)}`;
+        banner.appendChild(refundAmountEl);
+        banner.appendChild(document.createTextNode(' issued \u2014 identify the affected card(s) below.'));
         body.appendChild(banner);
       }
     }

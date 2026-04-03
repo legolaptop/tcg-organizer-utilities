@@ -511,8 +511,12 @@
       const m = idEl.textContent.match(/([A-Z0-9]{6,}-[A-Z0-9]{4,}-[A-Z0-9]{4,})/);
       if (m) return m[1];
     }
-    const m = orderEl.textContent.match(/Order\s+(?:#|Number)?\s*([A-Z0-9]{6,}-[A-Z0-9]{4,}-[A-Z0-9]{4,})/i);
-    if (m) return m[1];
+    // Regular marketplace order: "Order Number\n2847D9A7-CB55FA-7FE2E"
+    const regularM = orderEl.textContent.match(/Order\s+(?:#|Number)?\s*([A-Z0-9]{6,}-[A-Z0-9]{4,}-[A-Z0-9]{4,})/i);
+    if (regularM) return regularM[1];
+    // TCGPlayer Direct order: "TCGPLAYER DIRECT #\n260326-CF38"
+    const directM = orderEl.textContent.match(/TCGPLAYER\s+DIRECT\s+#\s*([A-Z0-9]{6,}-[A-Z0-9]{2,})/i);
+    if (directM) return directM[1];
     return 'ORDER-' + Math.random().toString(36).slice(2, 10).toUpperCase();
   }
 
@@ -523,6 +527,8 @@
       const text = (link ? link.textContent : span.textContent).trim();
       if (text) return text;
     }
+    // TCGPlayer Direct orders have no vendorname span; they link to /help/shopdirect
+    if (orderEl.querySelector('a[href*="shopdirect"]')) return 'TCGplayer Direct';
     const m = orderEl.textContent.match(/SHIPPED AND SOLD BY[:\s]+([^\n]+)/i);
     if (m) return m[1].trim();
     return 'Unknown Seller';

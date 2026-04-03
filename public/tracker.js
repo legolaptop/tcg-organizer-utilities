@@ -585,10 +585,8 @@
       const texts = await Promise.all(reads);
 
       // Validate content before parsing.
-      const invalidNames = fileArr
-        .filter((f, i) => !hasExpectedTcgPlayerContent(texts[i]))
-        .map(f => f.name);
-      if (invalidNames.length === fileArr.length) {
+      const hasAnyValidContent = texts.some(hasExpectedTcgPlayerContent);
+      if (!hasAnyValidContent) {
         showUploadMsg(
           'File does not appear to be a TCGPlayer order history export. ' +
           'Please upload an MHT or HTML save of your order history page.',

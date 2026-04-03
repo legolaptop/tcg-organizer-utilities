@@ -29,6 +29,7 @@
   let driveFileId = null;
   let authRequestTimer = null;
   let authRequestMode = null; // 'silent' | 'interactive' | null
+  let authErrorMessage = 'Connection failed — try again';
 
   function isAuthenticated() {
     return (
@@ -127,6 +128,13 @@
 
     if (response.error) {
       console.error('OAuth error:', response.error);
+      if (authRequestMode === 'interactive') {
+        if (response.error === 'popup_failed_to_open' || response.error === 'popup_closed') {
+          authErrorMessage = 'Google popup blocked or closed — allow popups and try again';
+        } else {
+          authErrorMessage = 'Connection failed — try again';
+        }
+      }
       setAuthStatus(authRequestMode === 'silent' ? 'disconnected' : 'error');
       authRequestMode = null;
       return;
@@ -155,9 +163,19 @@
    * If already authenticated, loads Drive state immediately.
    */
   async function connectGoogleDrive(mode = 'interactive') {
-    if (!window.google || !tokenClient) {
+    if (!window.google) {
+      authErrorMessage = 'Google auth is not available — refresh and try again';
       setAuthStatus('error');
       return;
+    }
+
+    if (!tokenClient) {
+      initGoogleAuth();
+      if (!tokenClient) {
+        authErrorMessage = 'Google auth is not ready yet — refresh and try again';
+        setAuthStatus('error');
+        return;
+      }
     }
 
     if (isAuthenticated()) {
@@ -173,6 +191,7 @@
     }
 
     authRequestMode = mode;
+    authErrorMessage = 'Connection failed — try again';
     setAuthStatus('connecting');
     startAuthRequestTimeout(mode);
     tokenClient.requestAccessToken({ prompt: mode === 'silent' ? '' : 'consent' });
@@ -191,6 +210,7 @@
     }
     authState = { accessToken: null, expiresAt: null };
     driveFileId = null;
+    authErrorMessage = 'Connection failed — try again';
     setDriveAutoconnectEnabled(false);
     setAuthStatus('disconnected');
   }
@@ -245,6 +265,9 @@
     authRequestTimer = setTimeout(() => {
       authRequestTimer = null;
       authRequestMode = null;
+      if (mode === 'interactive') {
+        authErrorMessage = 'Connection timed out — allow popups and try again';
+      }
       setAuthStatus(mode === 'silent' ? 'disconnected' : 'error');
     }, AUTH_REQUEST_TIMEOUT_MS);
   }
@@ -283,7 +306,7 @@
       driveConnectBtn.disabled = false;
       driveConnectBtn.textContent = 'Connect Google Drive';
       driveDisconnectBtn.hidden = true;
-      driveAuthStatus.textContent = 'Connection failed — try again';
+      driveAuthStatus.textContent = authErrorMessage || 'Connection failed — try again';
       driveAuthStatus.className = 'drive-auth-status drive-auth-status--error';
       driveAuthStatus.hidden = false;
       driveConnectNote.hidden = false;

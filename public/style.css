@@ -413,6 +413,21 @@ footer a:hover {
   font-weight: 500;
 }
 
+.order-group__toggle-all {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  font-size: 0.75rem;
+  color: #718096;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: 3px;
+}
+
+.order-group__toggle-all:hover {
+  color: #2b4c8c;
+}
+
 /* ── Order cards ────────────────────────────────────────────── */
 .order-card {
   background: #fff;
@@ -478,8 +493,11 @@ footer a:hover {
 }
 
 .order-card__total {
-  font-size: 0.82rem;
-  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2b4c8c;
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .order-card__badges {
@@ -562,6 +580,7 @@ footer a:hover {
   padding: 0.35rem 0.5rem;
   border-radius: 5px;
   transition: background 0.15s;
+  cursor: pointer;
 }
 
 .card-row:hover {
@@ -573,8 +592,10 @@ footer a:hover {
   opacity: 0.75;
 }
 
-.card-row--canceled .card-row__name,
-.card-row--canceled .card-row__meta {
+.card-row--canceled .card-row__name-text,
+.card-row--canceled .card-row__set,
+.card-row--canceled .card-row__meta,
+.card-row--canceled .card-row__price {
   text-decoration: line-through;
   color: #a0aec0;
 }
@@ -584,29 +605,57 @@ footer a:hover {
   opacity: 0.75;
 }
 
-.card-row--missing .card-row__name,
-.card-row--missing .card-row__meta {
+.card-row--missing .card-row__name-text,
+.card-row--missing .card-row__set,
+.card-row--missing .card-row__meta,
+.card-row--missing .card-row__price {
   text-decoration: line-through;
   color: #a0aec0;
 }
 
+.card-row__controls {
+  display: none;
+  width: 100%;
+  gap: 0.75rem;
+  padding: 0.25rem 0 0.1rem 0;
+  border-top: 1px solid #edf2f7;
+  margin-top: 0.2rem;
+}
+
 .card-row__name {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 100px;
+  gap: 0.1rem;
+}
+
+.card-row__name-text {
   font-size: 0.85rem;
   font-weight: 600;
   color: #2d3748;
-  flex: 1;
-  min-width: 100px;
+}
+
+.card-row__set {
+  font-size: 0.72rem;
+  color: #a0aec0;
+  font-style: italic;
 }
 
 .card-row__meta {
   font-size: 0.76rem;
   color: #718096;
+  white-space: nowrap;
 }
 
-.card-row__controls {
+.card-row__price {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #2b4c8c;
+}
+
+.card-row--open .card-row__controls {
   display: flex;
-  gap: 0.75rem;
-  margin-left: auto;
 }
 
 .card-row__check-label {

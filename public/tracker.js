@@ -353,7 +353,7 @@
   trackerParseBtn.addEventListener('click', async () => {
     const files = trackerFileInput.files;
     if (!files || files.length === 0) {
-      showUploadMsg('Please select one or more MHT files.', true);
+      showUploadMsg('Please select one or more MHT/HTML archive files.', true);
       return;
     }
 
@@ -374,7 +374,7 @@
 
       const freshOrders = [];
       for (const text of texts) {
-        freshOrders.push(...parseMhtIntoOrders(text));
+        freshOrders.push(...parseArchiveIntoOrders(text));
       }
 
       if (freshOrders.length === 0) {
@@ -389,10 +389,11 @@
       // Merge: add new orders that weren't previously loaded
       const existingIds = new Set(orders.map(o => o.id));
       const newOrders = freshOrders.filter(o => !existingIds.has(o.id));
-      orders = [...orders, ...newOrders].filter(o => !o.canceled);
+      const visibleNewOrders = newOrders.filter(o => !o.canceled);
+      orders = [...orders, ...visibleNewOrders];
 
       const parts = [];
-      if (newOrders.length > 0) parts.push(`${newOrders.length} new order(s) added`);
+      if (visibleNewOrders.length > 0) parts.push(`${visibleNewOrders.length} new order(s) added`);
       if (updatedCount > 0) parts.push(`shipping updated for ${updatedCount} order(s)`);
       if (parts.length === 0) parts.push('Orders up to date');
       showUploadMsg(parts.join(' · '), false);
@@ -414,182 +415,252 @@
     trackerUploadMsg.hidden = false;
   }
 
-  // ── MHT → Order parser ────────────────────────────────────────
-  // Parses TCGPlayer order-history HTML/MHT files into Order objects.
+  // ── Archive HTML → Order parser ───────────────────────────────
+  // Parses TCGPlayer order-history MHTML (MIME HTML archive) files.
+  // MHTML is a MIME multipart document; we extract the HTML part, parse
+  // it with DOMParser, and use CSS selectors — no regex on raw HTML.
 
-  function parseMhtIntoOrders(htmlText) {
-    if (!htmlText) return [];
-
-    // Find each order block.  TCGPlayer wraps each order in a div with
-    // data-aid="div-sellerorderwidget-ordercontainer" (or similar).
-    // We split on per-order section markers and parse each chunk.
-    const orderBlocks = splitIntoOrderBlocks(htmlText);
-    if (orderBlocks.length === 0) {
-      // Fallback: treat the whole text as a single order block
-      return [parseOrderBlock(htmlText, 'UNKNOWN')].filter(Boolean);
+  function parseArchiveIntoOrders(rawText) {
+    const htmlText = extractHtmlFromMhtml(rawText);
+    if (!htmlText) {
+      console.warn('parseArchiveIntoOrders: Could not extract HTML from MHTML');
+      return [];
     }
-    return orderBlocks.map(block => parseOrderBlock(block.html, block.hint)).filter(Boolean);
+    let doc;
+    try {
+      doc = new DOMParser().parseFromString(htmlText, 'text/html');
+    } catch (e) {
+      console.error('parseArchiveIntoOrders: DOMParser error', e);
+      return [];
+    }
+    if (!doc || !doc.body) return [];
+    return extractOrdersFromDom(doc);
   }
 
-  function splitIntoOrderBlocks(html) {
-    const blocks = [];
-    // Try to split on order container divs
-    const containerRegex = /<div\b[^>]*data-aid=['"]div-sellerorderwidget-ordercontainer['"][^>]*>([\s\S]*?)(?=<div\b[^>]*data-aid=['"]div-sellerorderwidget-ordercontainer['"]|$)/gi;
-    let m;
-    while ((m = containerRegex.exec(html)) !== null) {
-      blocks.push({ html: m[0], hint: '' });
+  function extractHtmlFromMhtml(rawText) {
+    if (!rawText) return '';
+    const text = String(rawText);
+    const boundaryMatch = text.match(/boundary=["']?([^\s"';]+)["']?/i);
+    if (!boundaryMatch) {
+      return /<html|<body|<div/i.test(text) ? text : '';
     }
-    if (blocks.length > 0) return blocks;
-
-    // Alternate: split on <table class="orderTable"> — each represents one order
-    const tableRegex = /(<div[^>]*>[\s\S]{0,2000}?<table\b[^>]*class="orderTable"[^>]*>[\s\S]*?<\/table>[\s\S]{0,500}?<\/div>)/gi;
-    while ((m = tableRegex.exec(html)) !== null) {
-      blocks.push({ html: m[1], hint: '' });
-    }
-    return blocks;
-  }
-
-  function parseOrderBlock(html, _hint) {
-    // ── Order ID ─────────────────────────────────────────────────
-    const idMatch = html.match(/Order\s+#?\s*([A-Z0-9]{6,}-[A-Z0-9]+-[A-Z0-9]+)/i)
-      || html.match(/data-order(?:id|number)=['"]([^'"]+)['"]/i)
-      || html.match(/order(?:id|number)['":\s]+([A-Z0-9]{6,}-[A-Z0-9]+-[A-Z0-9]+)/i);
-    const id = idMatch ? idMatch[1].trim() : ('ORDER-' + Math.random().toString(36).slice(2, 10).toUpperCase());
-
-    // ── Seller ────────────────────────────────────────────────────
-    const sellerMatch = html.match(/Sold by[:\s]+([^\n<,]+)/i)
-      || html.match(/seller[:\s]+([^\n<,]{2,60})/i);
-    const seller = sellerMatch ? sellerMatch[1].trim() : 'Unknown Seller';
-
-    // ── Order date ────────────────────────────────────────────────
-    const dateMatch = html.match(/Order\s+(?:Date|Placed)[:\s]+([A-Z][a-z]+ \d{1,2},\s*\d{4})/i)
-      || html.match(/Placed[:\s]+([A-Z][a-z]+ \d{1,2},\s*\d{4})/i);
-    const date = dateMatch ? dateMatch[1].trim() : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
-    // ── Estimated delivery ────────────────────────────────────────
-    const deliveryMatch = html.match(/(?:Estimated|Est\.?)\s+(?:Delivery|Arrival|Ship)[:\s]+([A-Z][a-z]+ \d{1,2},\s*\d{4})/i)
-      || html.match(/(?:Delivery|Arrives?)\s+by\s+([A-Z][a-z]+ \d{1,2},\s*\d{4})/i)
-      || html.match(/(?:Estimated|Est\.?)\s+(?:Delivery|Arrival)[:\s]+([A-Z][a-z]+ \d{1,2}\s*[-–]\s*\d{1,2},\s*\d{4})/i);
-    // Default estimated delivery: 7 days from today
-    const defaultDelivery = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const estimatedDelivery = deliveryMatch ? deliveryMatch[1].trim() : defaultDelivery;
-
-    // ── Tracking number ───────────────────────────────────────────
-    const trackMatch = html.match(/(?:Track(?:ing)?(?:\s+Number)?)[:\s#]+([A-Z0-9]{10,40})/i);
-    const trackingNumber = trackMatch ? trackMatch[1].trim() : null;
-
-    // ── Shipping confirmed ────────────────────────────────────────
-    const shippingConfirmed = !/Shipping Not Confirmed/i.test(html)
-      && !/not\s+(?:yet\s+)?shipped/i.test(html);
-
-    // ── Canceled ──────────────────────────────────────────────────
-    const canceled = /(?:Order\s+)?Canceled|Refunded in Full/i.test(html)
-      || /data-aid=['"]div-sellerorderwidget-singlerefund['"]/i.test(html);
-
-    // ── Partial refund ────────────────────────────────────────────
-    const refundMatch = html.match(/Partial\s+Refund[:\s]+\$?([\d.]+)/i)
-      || html.match(/\$?([\d.]+)\s+partial\s+refund/i);
-    const partialRefund = refundMatch ? parseFloat(refundMatch[1]) : null;
-
-    // ── Order total ───────────────────────────────────────────────
-    const totalMatch = html.match(/Order\s+Total[:\s]+\$?([\d,.]+)/i)
-      || html.match(/Total[:\s]+\$\s*([\d,.]+)/i);
-    const total = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
-
-    // ── Cards ─────────────────────────────────────────────────────
-    const cards = parseCardsFromBlock(html, seller);
-
-    if (cards.length === 0 && !canceled) return null;
-
-    return {
-      id,
-      date,
-      seller,
-      total,
-      estimatedDelivery,
-      trackingNumber,
-      shippingConfirmed,
-      canceled,
-      partialRefund,
-      cards,
-    };
-  }
-
-  function parseCardsFromBlock(html, orderSeller) {
-    const cards = [];
-    const trRegex = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
-    let m;
-
-    while ((m = trRegex.exec(html)) !== null) {
-      const row = m[1];
-      if (!row.includes('orderHistoryItems')) continue;
-
-      // title
-      const titleMatch = row.match(/<a\b[^>]+\btitle="([^"]+)"/i)
-        || row.match(/<a\b[^>]+class="nocontext"[^>]*>([\s\S]*?)<\/a>/i);
-      const name = titleMatch ? stripTagsSimple(titleMatch[1]).trim() : null;
-      if (!name) continue;
-
-      // set name — text after <br> in the span
-      let set = '';
-      const spanM = row.match(/<span\b[^>]*>([\s\S]*?)<\/span>/i);
-      if (spanM) {
-        const parts = spanM[1].split(/<br\s*\/?>/i);
-        if (parts.length >= 2) set = stripTagsSimple(parts[parts.length - 1]).trim();
-      }
-
-      // condition / foil
-      let condition = 'Near Mint';
-      let foil = false;
-      const detailM = row.match(/<td\b[^>]*class="orderHistoryDetail"[^>]*>([\s\S]*?)<\/td>/i);
-      if (detailM) {
-        const lines = stripTagsSimple(detailM[1].replace(/<br\s*\/?>/gi, '\n')).split('\n').map(l => l.trim()).filter(Boolean);
-        for (const line of lines) {
-          if (/^condition\s*:/i.test(line)) {
-            let cond = line.split(':').slice(1).join(':').trim();
-            if (/\bfoil\b/i.test(cond)) { foil = true; cond = cond.replace(/\bfoil\b/gi, '').trim(); }
-            condition = cond || 'Near Mint';
-          }
+    const boundary = boundaryMatch[1];
+    const parts = text.split(new RegExp(`\\r?\\n--${escapeRegex(boundary)}(?:--)?(?:\\r?\\n|$)`));
+    for (const part of parts) {
+      if (/content-type:\s*text\/html/i.test(part)) {
+        const bodyMatch = part.match(/\r?\n\r?\n([\s\S]*)/);
+        if (!bodyMatch) continue;
+        let html = bodyMatch[1];
+        if (/content-transfer-encoding:\s*quoted-printable/i.test(part)) {
+          html = decodeQuotedPrintable(html);
         }
+        return html.trim();
       }
-
-      // price
-      let price = 0;
-      const priceM = row.match(/<td\b[^>]*class="orderHistoryPrice"[^>]*>([\s\S]*?)<\/td>/i);
-      if (priceM) {
-        const nm = stripTagsSimple(priceM[1]).match(/\$?\s*([0-9,]+(?:\.[0-9]{1,2})?)/);
-        if (nm) price = parseFloat(nm[1].replace(/,/g, '')) || 0;
-      }
-
-      // quantity
-      let quantity = 1;
-      const qtyM = row.match(/<td\b[^>]*class="orderHistoryQuantity"[^>]*>([\s\S]*?)<\/td>/i);
-      if (qtyM) {
-        const n = parseInt(stripTagsSimple(qtyM[1]).trim(), 10);
-        if (!isNaN(n) && n > 0) quantity = n;
-      }
-
-      // cardSeller — "Sold by X" after the card title
-      let cardSeller = orderSeller;
-      const soldByM = row.match(/Sold by\s+([^\n<]+)/i);
-      if (soldByM) cardSeller = soldByM[1].trim();
-
-      cards.push({ name, set, condition, price, quantity, foil, cardSeller });
     }
-
-    return cards;
+    return '';
   }
 
-  function stripTagsSimple(html) {
-    const out = [];
-    let inTag = false;
-    for (let i = 0; i < html.length; i++) {
-      if (html[i] === '<') { inTag = true; continue; }
-      if (html[i] === '>') { inTag = false; continue; }
-      if (!inTag) out.push(html[i]);
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Mirrors parseCondition() from src/parser.js.
+   * Strips "Foil" from the condition text, normalises to a canonical label,
+   * and returns { condition, foil } so the two fields never duplicate each other.
+   */
+  function parseCondition(text) {
+    if (!text) return { condition: 'Near Mint', foil: false };
+    const foil = /foil/i.test(text);
+    const cleaned = text.replace(/foil/gi, '').trim().toLowerCase();
+    const map = [
+      [/^nm\b|near\s*mint/, 'Near Mint'],
+      [/^lp\b|lightly\s*played/, 'Lightly Played'],
+      [/^mp\b|moderately\s*played/, 'Moderately Played'],
+      [/^hp\b|heavily\s*played/, 'Heavily Played'],
+      [/^d\b|damaged/, 'Damaged'],
+    ];
+    for (const [re, label] of map) {
+      if (re.test(cleaned)) return { condition: label, foil };
     }
-    return out.join('');
+    return { condition: cleaned || 'Near Mint', foil };
+  }
+
+  function decodeQuotedPrintable(text) {
+    if (!text) return '';
+    return text
+      .replace(/=\r?\n/g, '')
+      .replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  }
+
+  function extractOrdersFromDom(doc) {
+    const results = [];
+    let orderElements = doc.querySelectorAll('[data-aid="div-sellerorderwidget-ordercontainer"]');
+    if (orderElements.length === 0) orderElements = doc.querySelectorAll('.orderWrap');
+    if (orderElements.length === 0) {
+      console.warn('extractOrdersFromDom: No order containers found');
+      return [];
+    }
+    orderElements.forEach(el => {
+      const order = parseOrderFromElement(el);
+      if (order) results.push(order);
+    });
+    return results;
+  }
+
+  function parseOrderFromElement(orderEl) {
+    const id = extractOrderId(orderEl);
+    if (!id) return null;
+    const seller = extractSeller(orderEl);
+    const date = extractOrderDate(orderEl);
+    const estimatedDelivery = extractEstimatedDelivery(orderEl);
+    const trackingNumber = extractTrackingNumber(orderEl);
+    const shippingConfirmed = !/Shipping Not Confirmed/i.test(orderEl.textContent);
+    const canceled = /Canceled|Refunded in Full/i.test(orderEl.textContent);
+    const partialRefund = extractPartialRefund(orderEl);
+    const total = extractOrderTotal(orderEl);
+    const cards = extractCardsFromElement(orderEl, seller);
+    if (cards.length === 0) {
+      console.warn(`parseOrderFromElement: No cards found for order ${id}`);
+      return null;
+    }
+    return { id, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
+  }
+
+  function extractOrderId(orderEl) {
+    const idEl = orderEl.querySelector('[data-aid*="ordernumber"]');
+    if (idEl) {
+      const m = idEl.textContent.match(/([A-Z0-9]{6,}-[A-Z0-9]{4,}-[A-Z0-9]{4,})/);
+      if (m) return m[1];
+    }
+    // Regular marketplace order: "Order Number\n2847D9A7-CB55FA-7FE2E"
+    const regularM = orderEl.textContent.match(/Order\s+(?:#|Number)?\s*([A-Z0-9]{6,}-[A-Z0-9]{4,}-[A-Z0-9]{4,})/i);
+    if (regularM) return regularM[1];
+    // TCGPlayer Direct order: "TCGPLAYER DIRECT #\n260326-CF38"
+    const directM = orderEl.textContent.match(/TCGPLAYER\s+DIRECT\s+#\s*([A-Z0-9]{6,}-[A-Z0-9]{2,})/i);
+    if (directM) return directM[1];
+    return 'ORDER-' + Math.random().toString(36).slice(2, 10).toUpperCase();
+  }
+
+  function extractSeller(orderEl) {
+    const span = orderEl.querySelector('[data-aid="spn-sellerorderwidget-vendorname"]');
+    if (span) {
+      const link = span.querySelector('a');
+      const text = (link ? link.textContent : span.textContent).trim();
+      if (text) return text;
+    }
+    // TCGPlayer Direct orders have no vendorname span; they link to /help/shopdirect
+    if (orderEl.querySelector('a[href*="shopdirect"]')) return 'TCGplayer Direct';
+    const m = orderEl.textContent.match(/SHIPPED AND SOLD BY[:\s]+([^\n]+)/i);
+    if (m) return m[1].trim();
+    return 'Unknown Seller';
+  }
+
+  function extractOrderDate(orderEl) {
+    const el = orderEl.querySelector('[data-aid*="orderdate"], [data-aid*="placed"]');
+    if (el) {
+      const m = el.textContent.match(/([A-Z][a-z]+\s+\d{1,2},?\s*\d{4})/);
+      if (m) return m[1];
+    }
+    const m = orderEl.textContent.match(/(?:Order\s+(?:Date|Placed)|Placed)[:\s]+([A-Z][a-z]+\s+\d{1,2},?\s*\d{4})/i);
+    if (m) return m[1];
+    return new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function extractEstimatedDelivery(orderEl) {
+    const el = orderEl.querySelector('[data-aid*="delivery"], [data-aid*="arrival"]');
+    if (el) {
+      const m = el.textContent.match(/([A-Z][a-z]+\s+\d{1,2}[\s\-–]*\d{0,2},?\s*\d{4})/);
+      if (m) return m[1];
+    }
+    const m = orderEl.textContent.match(/(?:Estimated\s+)?(?:Delivery|Arrives?)\s+(?:by\s+)?([A-Z][a-z]+\s+\d{1,2}[\s\-–]*\d{0,2},?\s*\d{4})/i);
+    if (m) return m[1];
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function extractTrackingNumber(orderEl) {
+    const link = orderEl.querySelector('a[href*="shipment"]');
+    if (link) {
+      const m = link.textContent.trim().match(/([A-Z0-9]{10,40})/);
+      if (m) return { number: m[1], url: link.href };
+    }
+    const m = orderEl.textContent.match(/(?:Tracking(?:\s+Number)?|Track)[:\s#]+([A-Z0-9]{10,40})/i);
+    return m ? { number: m[1], url: null } : null;
+  }
+
+  function extractPartialRefund(orderEl) {
+    const m = orderEl.textContent.match(/Partial\s+Refund[:\s]*\$?\s*([\d.]+)/i);
+    return m ? parseFloat(m[1]) : null;
+  }
+
+  function extractOrderTotal(orderEl) {
+    const m = orderEl.textContent.match(/Order\s+Total[:\s]*\$?\s*([\d,.]+)/i);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+  }
+
+  function extractCardsFromElement(orderEl, orderSeller) {
+    const cards = [];
+    orderEl.querySelectorAll('table').forEach(table => {
+      table.querySelectorAll('tbody tr').forEach(row => {
+        const itemCell = row.querySelector('td.orderHistoryItems');
+        if (!itemCell) return;
+        const link = itemCell.querySelector('a');
+        if (!link) return;
+        const name = (link.title || link.textContent || '').trim();
+        if (!name) return;
+
+        // Extract tcgplayerId from card image URL (used by CSV export pipeline)
+        let tcgplayerId = null;
+        const img = itemCell.querySelector('img');
+        if (img) {
+          const src = img.dataset.original || img.dataset.src || img.getAttribute('src') || '';
+          const idm = src.match(/\/product\/(\d+)_/);
+          if (idm) tcgplayerId = idm[1];
+        }
+        if (!tcgplayerId) {
+          const href = link.getAttribute('href') || '';
+          const hrefm = href.match(/\/product\/(\d+)(?!\d)/);
+          if (hrefm) tcgplayerId = hrefm[1];
+        }
+
+        // Item cell lines: [name, set] for regular orders;
+        // [name, set, "Sold by X"] for TCGPlayer Direct orders.
+        const lines = (itemCell.textContent || '').split(/\n/).map(l => l.trim()).filter(Boolean);
+        let cardSeller = orderSeller;
+        let setLines = lines.slice(1); // drop the card name line
+        if (setLines.length > 0 && /^Sold by\s/i.test(setLines[setLines.length - 1])) {
+          cardSeller = setLines[setLines.length - 1].replace(/^Sold by\s+/i, '').trim();
+          setLines = setLines.slice(0, -1);
+        }
+        const set = setLines.length > 0 ? setLines[setLines.length - 1] : '';
+
+        let condition = 'Near Mint';
+        let foil = false;
+        const detailCell = row.querySelector('td.orderHistoryDetail');
+        if (detailCell) {
+          const cm = (detailCell.textContent || '').match(/condition\s*:\s*([^,\n<]+)/i);
+          if (cm) ({ condition, foil } = parseCondition(cm[1].trim()));
+        }
+
+        let price = 0;
+        const priceCell = row.querySelector('td.orderHistoryPrice');
+        if (priceCell) {
+          const pm = (priceCell.textContent || '').match(/\$?\s*([\d,.]+)/);
+          if (pm) price = parseFloat(pm[1].replace(/,/g, ''));
+        }
+
+        let quantity = 1;
+        const qtyCell = row.querySelector('td.orderHistoryQuantity');
+        if (qtyCell) {
+          const n = parseInt(qtyCell.textContent || '1', 10);
+          if (!isNaN(n) && n > 0) quantity = n;
+        }
+
+        cards.push({ name, set, condition, price, quantity, foil, cardSeller, tcgplayerId });
+      });
+    });
+    return cards;
   }
 
   // ── Shipping diff helpers ─────────────────────────────────────
@@ -784,6 +855,23 @@
 
     header.appendChild(labelEl);
     header.appendChild(dateEl);
+
+    // Expand / collapse all toggle for this group
+    const toggleAllBtn = document.createElement('button');
+    toggleAllBtn.className = 'order-group__toggle-all';
+    toggleAllBtn.textContent = 'Collapse all';
+    toggleAllBtn.addEventListener('click', () => {
+      const bodies = group.querySelectorAll('.order-card__body');
+      const btns = group.querySelectorAll('.order-card__expand-btn');
+      const anyExpanded = Array.from(bodies).some(b => !b.hidden);
+      bodies.forEach(b => { b.hidden = anyExpanded; });
+      btns.forEach(b => {
+        b.textContent = anyExpanded ? '\u25b8 Details' : '\u25be Details';
+        b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
+    });
+    header.appendChild(toggleAllBtn);
     group.appendChild(header);
 
     for (const order of groupOrders) {
@@ -838,9 +926,8 @@
     totalEl.className = 'order-card__total';
     totalEl.textContent = order.total > 0 ? `$${order.total.toFixed(2)}` : '';
 
-    info.appendChild(idEl);
     info.appendChild(sellerEl);
-    if (order.total > 0) info.appendChild(totalEl);
+    info.appendChild(idEl);
 
     // Status badge
     const badges = document.createElement('div');
@@ -853,29 +940,35 @@
     } else if (status === 'tracked') {
       const b = makeBadge('Tracked', 'tracked');
       badges.appendChild(b);
-      const tn = document.createElement('span');
+      const tn = document.createElement('a');
       tn.className = 'order-card__tracking';
-      tn.textContent = order.trackingNumber;
+      tn.textContent = order.trackingNumber.number;
+      if (order.trackingNumber.url) {
+        tn.href = order.trackingNumber.url;
+        tn.target = '_blank';
+        tn.rel = 'noopener noreferrer';
+      }
       badges.appendChild(tn);
     }
 
     // Expand/collapse button
     const expandBtn = document.createElement('button');
     expandBtn.className = 'order-card__expand-btn';
-    expandBtn.setAttribute('aria-expanded', 'false');
+    expandBtn.setAttribute('aria-expanded', String(!isReceived));
     expandBtn.setAttribute('aria-label', `Toggle details for order ${order.id}`);
-    expandBtn.textContent = '▸ Details';
+    expandBtn.textContent = isReceived ? '▸ Details' : '▾ Details';
 
     header.appendChild(receivedLabel);
     header.appendChild(info);
     header.appendChild(badges);
+    if (order.total > 0) header.appendChild(totalEl);
     header.appendChild(expandBtn);
     card.appendChild(header);
 
     // ── Body (expanded) ────────────────────────────────────────
     const body = document.createElement('div');
     body.className = 'order-card__body';
-    body.hidden = true;
+    body.hidden = isReceived;
 
     // Partial refund banner
     if (order.partialRefund !== null && order.partialRefund !== undefined) {
@@ -914,21 +1007,43 @@
 
   function renderCardRow(card, key, orderId, cs) {
     const li = document.createElement('li');
-    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}`;
+    const hasIssue = cs.canceled || cs.missing;
+    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}${hasIssue ? ' card-row--open' : ''}`;
 
-    const name = document.createElement('span');
-    name.className = 'card-row__name';
-    name.textContent = `${card.name}`;
+    // Left: name + set
+    const nameBlock = document.createElement('span');
+    nameBlock.className = 'card-row__name';
+    const nameText = document.createElement('span');
+    nameText.className = 'card-row__name-text';
+    nameText.textContent = card.name;
+    const setEl = card.set ? document.createElement('span') : null;
+    if (setEl) {
+      setEl.className = 'card-row__set';
+      setEl.textContent = card.set;
+    }
+    nameBlock.appendChild(nameText);
+    if (setEl) nameBlock.appendChild(setEl);
 
+    // Right: condition / foil / price
     const meta = document.createElement('span');
     meta.className = 'card-row__meta';
-    meta.textContent = [card.set, card.condition, card.foil ? 'Foil' : '', card.price > 0 ? `$${card.price.toFixed(2)}` : '']
-      .filter(Boolean).join(' · ');
+    const metaText = [card.condition, card.foil ? 'Foil' : ''].filter(Boolean).join(' · ');
+    if (metaText) {
+      meta.appendChild(document.createTextNode(metaText));
+    }
+    if (card.price > 0) {
+      if (metaText) meta.appendChild(document.createTextNode(' · '));
+      const priceEl = document.createElement('span');
+      priceEl.className = 'card-row__price';
+      priceEl.textContent = `$${card.price.toFixed(2)}`;
+      meta.appendChild(priceEl);
+    }
 
+    // Controls (hidden until row is clicked)
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
 
-    // Canceled checkbox — toggling on clears missing (mutually exclusive)
+    // Refunded checkbox — toggling on clears missing (mutually exclusive)
     const cancelLabel = document.createElement('label');
     cancelLabel.className = 'card-row__check-label';
     const cancelCb = document.createElement('input');
@@ -941,7 +1056,7 @@
       renderTracker();
     });
     cancelLabel.appendChild(cancelCb);
-    cancelLabel.appendChild(document.createTextNode(' Canceled'));
+    cancelLabel.appendChild(document.createTextNode(' Refunded'));
 
     // Missing checkbox — toggling on clears canceled (mutually exclusive)
     const missingLabel = document.createElement('label');
@@ -961,7 +1076,13 @@
     controls.appendChild(cancelLabel);
     controls.appendChild(missingLabel);
 
-    li.appendChild(name);
+    // Toggle controls on row click (but not if clicking a checkbox directly)
+    li.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      li.classList.toggle('card-row--open');
+    });
+
+    li.appendChild(nameBlock);
     li.appendChild(meta);
     li.appendChild(controls);
     return li;

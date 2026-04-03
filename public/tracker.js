@@ -523,7 +523,7 @@
       const text = (link ? link.textContent : span.textContent).trim();
       if (text) return text;
     }
-    const m = orderEl.textContent.match(/SHIPPED AND SOLD BY\s+([^\n]+)/i);
+    const m = orderEl.textContent.match(/SHIPPED AND SOLD BY[:\s]+([^\n]+)/i);
     if (m) return m[1].trim();
     return 'Unknown Seller';
   }
@@ -582,8 +582,30 @@
         const name = (link.title || link.textContent || '').trim();
         if (!name) return;
 
+        // Extract tcgplayerId from card image URL (used by CSV export pipeline)
+        let tcgplayerId = null;
+        const img = itemCell.querySelector('img');
+        if (img) {
+          const src = img.dataset.original || img.dataset.src || img.getAttribute('src') || '';
+          const idm = src.match(/\/product\/(\d+)_/);
+          if (idm) tcgplayerId = idm[1];
+        }
+        if (!tcgplayerId) {
+          const href = link.getAttribute('href') || '';
+          const hrefm = href.match(/\/product\/(\d+)(?!\d)/);
+          if (hrefm) tcgplayerId = hrefm[1];
+        }
+
+        // Item cell lines: [name, set] for regular orders;
+        // [name, set, "Sold by X"] for TCGPlayer Direct orders.
         const lines = (itemCell.textContent || '').split(/\n/).map(l => l.trim()).filter(Boolean);
-        const set = lines.length > 1 ? lines[lines.length - 1] : '';
+        let cardSeller = orderSeller;
+        let setLines = lines.slice(1); // drop the card name line
+        if (setLines.length > 0 && /^Sold by\s/i.test(setLines[setLines.length - 1])) {
+          cardSeller = setLines[setLines.length - 1].replace(/^Sold by\s+/i, '').trim();
+          setLines = setLines.slice(0, -1);
+        }
+        const set = setLines.length > 0 ? setLines[setLines.length - 1] : '';
 
         let condition = 'Near Mint';
         let foil = false;
@@ -609,11 +631,7 @@
           if (!isNaN(n) && n > 0) quantity = n;
         }
 
-        let cardSeller = orderSeller;
-        const sbm = (row.textContent || '').match(/Sold by\s+([^\n]+)/i);
-        if (sbm) cardSeller = sbm[1].trim();
-
-        cards.push({ name, set, condition, price, quantity, foil, cardSeller });
+        cards.push({ name, set, condition, price, quantity, foil, cardSeller, tcgplayerId });
       });
     });
     return cards;

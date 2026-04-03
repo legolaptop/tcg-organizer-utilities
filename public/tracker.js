@@ -583,10 +583,10 @@
     const link = orderEl.querySelector('a[href*="shipment"]');
     if (link) {
       const m = link.textContent.trim().match(/([A-Z0-9]{10,40})/);
-      if (m) return m[1];
+      if (m) return { number: m[1], url: link.href };
     }
     const m = orderEl.textContent.match(/(?:Tracking(?:\s+Number)?|Track)[:\s#]+([A-Z0-9]{10,40})/i);
-    return m ? m[1] : null;
+    return m ? { number: m[1], url: null } : null;
   }
 
   function extractPartialRefund(orderEl) {
@@ -924,9 +924,14 @@
     } else if (status === 'tracked') {
       const b = makeBadge('Tracked', 'tracked');
       badges.appendChild(b);
-      const tn = document.createElement('span');
+      const tn = document.createElement('a');
       tn.className = 'order-card__tracking';
-      tn.textContent = order.trackingNumber;
+      tn.textContent = order.trackingNumber.number;
+      if (order.trackingNumber.url) {
+        tn.href = order.trackingNumber.url;
+        tn.target = '_blank';
+        tn.rel = 'noopener noreferrer';
+      }
       badges.appendChild(tn);
     }
 

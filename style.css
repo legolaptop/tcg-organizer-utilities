@@ -619,6 +619,7 @@ footer a:hover {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   flex-wrap: wrap;
+  cursor: pointer;
 }
 
 .order-card__received-label {
@@ -633,25 +634,6 @@ footer a:hover {
 }
 
 .order-card__received-cb {
-  width: 15px;
-  height: 15px;
-  cursor: pointer;
-}
-
-.order-card__exported-label {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #4a5568;
-  cursor: pointer;
-  white-space: nowrap;
-  margin-top: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.order-card__exported-cb {
   width: 15px;
   height: 15px;
   cursor: pointer;
@@ -701,23 +683,6 @@ footer a:hover {
   color: #718096;
 }
 
-.order-card__expand-btn {
-  cursor: pointer;
-  background: transparent;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 0.78rem;
-  color: #4a5568;
-  padding: 0.25rem 0.6rem;
-  margin-left: auto;
-  transition: background 0.15s;
-  white-space: nowrap;
-}
-
-.order-card__expand-btn:hover {
-  background: #edf2f7;
-}
-
 .order-card__body {
   border-top: 1px solid #e2e8f0;
   padding: 0.75rem 1rem;
@@ -741,6 +706,33 @@ footer a:hover {
   flex-wrap: wrap;
   gap: 0.35rem 0.5rem;
   margin-left: auto;
+}
+
+.order-card__summary-bottom {
+  margin-top: 0.8rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #edf2f7;
+}
+
+.order-card__single-export-btn {
+  margin: 0.1rem 0 0.7rem;
+  border: 1px solid #bee3f8;
+  background: #ebf8ff;
+  color: #2b6cb0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+}
+
+.order-card__single-export-btn:hover {
+  filter: brightness(0.98);
+}
+
+.order-card__single-export-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .order-card__summary-item {
@@ -787,7 +779,7 @@ footer a:hover {
 .status-badge--overdue     { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
 .status-badge--unconfirmed { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
 .status-badge--tracked     { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-.status-badge--exported    { background: #edf2f7; color: #2d3748; border: 1px solid #cbd5e0; }
+.status-badge--archived    { background: #edf2f7; color: #2d3748; border: 1px solid #cbd5e0; }
 
 .status-badge--link {
   text-decoration: none;

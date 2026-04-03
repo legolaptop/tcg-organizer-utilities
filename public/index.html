@@ -119,7 +119,7 @@
           <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
           <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
           <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
-          <button class="filter-tab" data-filter="exported" role="tab" aria-selected="false">Exported</button>
+          <button class="filter-tab" data-filter="archived" role="tab" aria-selected="false">Archived</button>
           <button id="toggle-all-btn" class="toggle-all-btn">Collapse all</button>
         </div>
 
@@ -161,10 +161,10 @@
         </div>
 
         <!-- Export received cards -->
-        <button id="tracker-export-fab" class="tracker-export-fab" hidden aria-controls="tracker-export-section" aria-expanded="false">Export</button>
+        <button id="tracker-export-fab" class="tracker-export-fab" hidden aria-controls="tracker-export-section" aria-expanded="false">Export All</button>
         <div id="tracker-export-section" class="card" style="margin-top:1rem;" hidden>
           <div class="section-header">
-            <span class="section-label">Export Received Cards</span>
+            <span class="section-label">Export All Received Cards</span>
             <div class="output-actions">
               <label for="tracker-export-format" class="hint" style="margin:0;">Format</label>
               <select id="tracker-export-format" class="btn btn-secondary btn-sm" aria-label="Select CSV export format">
@@ -173,13 +173,13 @@
                 <option value="deckbox">Deckbox</option>
                 <option value="generic">Generic</option>
               </select>
-              <button id="tracker-export-btn" class="btn btn-primary btn-sm">Download CSV</button>
+              <button id="tracker-export-btn" class="btn btn-primary btn-sm">Export All CSV</button>
             </div>
           </div>
           <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) in the selected site format.</p>
           <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.9rem;">
             <input id="tracker-export-include-exported" type="checkbox" />
-            <span>Include previously exported orders</span>
+            <span>Include previously archived orders</span>
           </label>
         </div>
 

@@ -17,7 +17,7 @@ body {
 .container {
   max-width: 820px;
   margin: 0 auto;
-  padding: 2rem 1rem 4rem;
+  padding: 2rem 1rem 22rem;
 }
 
 header {
@@ -224,6 +224,35 @@ footer a {
 
 footer a:hover {
   text-decoration: underline;
+}
+
+/* ── Export dock (floating at bottom) ───────────────────────── */
+#tracker-export-section {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.12);
+  border-top: 2px solid #e2e8f0;
+  background: #fff;
+  z-index: 100;
+  padding: 1.5rem 1rem;
+  overflow-y: auto;
+  max-height: 100vh;
+}
+
+@media (min-width: 820px) {
+  #tracker-export-section {
+    padding: 1.5rem 2rem;
+  }
+}
+
+#tracker-export-section:not([hidden]) {
+  display: block;
 }
 
 /* ── Tab navigation ────────────────────────────────────────── */

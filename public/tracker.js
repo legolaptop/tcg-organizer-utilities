@@ -37,6 +37,7 @@
   // ── App state ─────────────────────────────────────────────────
   let trackerState = {};   // TrackerState: Record<orderId, OrderState>
   let orders = [];         // Order[]
+  let orderBodyHiddenState = {}; // Ephemeral UI state: Record<orderId, boolean>
   let activeFilter = 'all';
   let saveTimer = null;
 
@@ -862,6 +863,7 @@
     toggleAllBtn.className = 'order-group__toggle-all';
     toggleAllBtn.textContent = 'Collapse all';
     toggleAllBtn.addEventListener('click', () => {
+      const cards = group.querySelectorAll('.order-card');
       const bodies = group.querySelectorAll('.order-card__body');
       const btns = group.querySelectorAll('.order-card__expand-btn');
       const anyExpanded = Array.from(bodies).some(b => !b.hidden);
@@ -869,6 +871,10 @@
       btns.forEach(b => {
         b.textContent = anyExpanded ? '\u25b8 Details' : '\u25be Details';
         b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      cards.forEach(cardEl => {
+        const orderId = cardEl.dataset.orderId;
+        if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
       });
       toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
     });
@@ -886,6 +892,8 @@
     const orderState = trackerState[order.id] || {};
     const isReceived = !!orderState.received;
     const status = isReceived ? 'standard' : getOrderStatus(order, today);
+    const hasUiHiddenState = Object.prototype.hasOwnProperty.call(orderBodyHiddenState, order.id);
+    const isBodyHidden = hasUiHiddenState ? orderBodyHiddenState[order.id] : isReceived;
 
     const card = document.createElement('div');
     card.className = `order-card order-card--${status}${isReceived ? ' order-card--received' : ''}`;
@@ -905,6 +913,7 @@
     receivedCb.setAttribute('aria-label', `Mark order ${order.id} as received`);
     receivedCb.addEventListener('change', () => {
       markReceived(order.id, receivedCb.checked);
+      orderBodyHiddenState[order.id] = receivedCb.checked;
       debouncedSave();
       renderTracker();
     });
@@ -955,9 +964,9 @@
     // Expand/collapse button
     const expandBtn = document.createElement('button');
     expandBtn.className = 'order-card__expand-btn';
-    expandBtn.setAttribute('aria-expanded', String(!isReceived));
+    expandBtn.setAttribute('aria-expanded', String(!isBodyHidden));
     expandBtn.setAttribute('aria-label', `Toggle details for order ${order.id}`);
-    expandBtn.textContent = isReceived ? '▸ Details' : '▾ Details';
+    expandBtn.textContent = isBodyHidden ? '▸ Details' : '▾ Details';
 
     header.appendChild(receivedLabel);
     header.appendChild(info);
@@ -969,7 +978,7 @@
     // ── Body (expanded) ────────────────────────────────────────
     const body = document.createElement('div');
     body.className = 'order-card__body';
-    body.hidden = isReceived;
+    body.hidden = isBodyHidden;
 
     // Partial refund banner
     if (order.partialRefund !== null && order.partialRefund !== undefined) {
@@ -999,6 +1008,7 @@
     expandBtn.addEventListener('click', () => {
       const expanded = body.hidden === false;
       body.hidden = expanded;
+      orderBodyHiddenState[order.id] = expanded;
       expandBtn.textContent = expanded ? '▸ Details' : '▾ Details';
       expandBtn.setAttribute('aria-expanded', String(!expanded));
     });
@@ -1111,7 +1121,8 @@
     });
   });
 
-    toggleAllBtn.addEventListener('click', () => {
+  toggleAllBtn.addEventListener('click', () => {
+      const cards = ordersList.querySelectorAll('.order-card');
       const bodies = ordersList.querySelectorAll('.order-card__body');
       const btns = ordersList.querySelectorAll('.order-card__expand-btn');
       const anyExpanded = Array.from(bodies).some(b => !b.hidden);
@@ -1120,8 +1131,12 @@
         b.textContent = anyExpanded ? '▸ Details' : '▾ Details';
         b.setAttribute('aria-expanded', String(!anyExpanded));
       });
+      cards.forEach(cardEl => {
+        const orderId = cardEl.dataset.orderId;
+        if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
+      });
       toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
-    });
+  });
 
   // ── Export received cards ─────────────────────────────────────
 

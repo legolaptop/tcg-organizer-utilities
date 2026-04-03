@@ -582,13 +582,43 @@
   }
 
   function extractTrackingNumber(orderEl) {
-    const link = orderEl.querySelector('a[href*="shipment"]');
-    if (link) {
-      const m = link.textContent.trim().match(/([A-Z0-9]{10,40})/);
-      if (m) return { number: m[1], url: link.href };
+    const linkCandidates = orderEl.querySelectorAll('a[href]');
+    for (const link of linkCandidates) {
+      const m = (link.textContent || '').trim().match(/([A-Z0-9]{10,40})/);
+      if (m) {
+        const number = m[1];
+        return { number, url: getTrackingUrl(orderEl, number) };
+      }
     }
     const m = orderEl.textContent.match(/(?:Tracking(?:\s+Number)?|Track)[:\s#]+([A-Z0-9]{10,40})/i);
-    return m ? { number: m[1], url: null } : null;
+    if (!m) return null;
+    const number = m[1];
+    return { number, url: getTrackingUrl(orderEl, number) };
+  }
+
+  function getTrackingUrl(orderEl, trackingNumber) {
+    const encoded = encodeURIComponent(trackingNumber);
+    const canonical = `https://tcgp.shipment.co/track/${encoded}`;
+
+    // Prefer a normalized archive link only if it already looks like a tracking URL.
+    const links = orderEl.querySelectorAll('a[href]');
+    for (const link of links) {
+      const rawHref = (link.getAttribute('href') || '').trim();
+      if (!rawHref) continue;
+      if (!/shipment|track/i.test(rawHref) && !rawHref.includes(trackingNumber)) continue;
+      const normalized = normalizeExternalUrl(rawHref, 'https://www.tcgplayer.com');
+      if (normalized && /shipment|track/i.test(normalized)) return normalized;
+    }
+
+    return canonical;
+  }
+
+  function normalizeExternalUrl(href, root) {
+    if (!href) return null;
+    if (/^https?:\/\//i.test(href)) return href;
+    if (href.startsWith('//')) return `https:${href}`;
+    if (href.startsWith('/')) return `${root}${href}`;
+    return `${root}/${href.replace(/^\.?\//, '')}`;
   }
 
   function extractPartialRefund(orderEl) {

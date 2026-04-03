@@ -523,12 +523,14 @@
     const shippingConfirmed = !/Shipping Not Confirmed/i.test(orderEl.textContent);
     const canceled = /Canceled|Refunded in Full/i.test(orderEl.textContent);
     const partialRefund = extractPartialRefund(orderEl);
-    const total = extractOrderTotal(orderEl);
     const cards = extractCardsFromElement(orderEl, seller);
     if (cards.length === 0) {
       console.warn(`parseOrderFromElement: No cards found for order ${id}`);
       return null;
     }
+    // Prefer explicit order total from the page (includes shipping/tax when present).
+    // Fall back to summed card line items so totals remain useful when the label is missing.
+    const total = extractOrderTotal(orderEl, cards);
     return { id, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
   }
 
@@ -629,9 +631,50 @@
     return m ? parseFloat(m[1]) : null;
   }
 
-  function extractOrderTotal(orderEl) {
-    const m = orderEl.textContent.match(/Order\s+Total[:\s]*\$?\s*([\d,.]+)/i);
-    return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+  function extractOrderTotal(orderEl, cards) {
+    const selectors = [
+      '[data-aid*="ordertotal"]',
+      '[data-aid*="order-total"]',
+      '[data-aid*="total"]',
+    ];
+    for (const selector of selectors) {
+      const totalEl = orderEl.querySelector(selector);
+      if (!totalEl) continue;
+      const parsed = parseDollarAmount(totalEl.textContent || '');
+      if (parsed > 0) return parsed;
+    }
+
+    const text = orderEl.textContent || '';
+    const patterns = [
+      /Order\s+Total[:\s]*\$?\s*([\d,.]+)/i,
+      /Grand\s+Total[:\s]*\$?\s*([\d,.]+)/i,
+      /Total[:\s]*\$?\s*([\d,.]+)/i,
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (!m) continue;
+      const parsed = parseFloat(String(m[1]).replace(/,/g, ''));
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+
+    return calculateCardsTotal(cards);
+  }
+
+  function parseDollarAmount(text) {
+    const m = String(text || '').match(/\$\s*([\d,.]+)/);
+    if (!m) return 0;
+    const parsed = parseFloat(m[1].replace(/,/g, ''));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function calculateCardsTotal(cards) {
+    if (!Array.isArray(cards) || cards.length === 0) return 0;
+    const sum = cards.reduce((acc, card) => {
+      const qty = card && card.quantity != null ? card.quantity : 1;
+      const unit = card && card.price != null ? card.price : 0;
+      return acc + (qty * unit);
+    }, 0);
+    return Number.isFinite(sum) && sum > 0 ? parseFloat(sum.toFixed(2)) : 0;
   }
 
   function extractCardsFromElement(orderEl, orderSeller) {

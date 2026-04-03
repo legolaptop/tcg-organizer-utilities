@@ -855,6 +855,23 @@
 
     header.appendChild(labelEl);
     header.appendChild(dateEl);
+
+    // Expand / collapse all toggle for this group
+    const toggleAllBtn = document.createElement('button');
+    toggleAllBtn.className = 'order-group__toggle-all';
+    toggleAllBtn.textContent = 'Collapse all';
+    toggleAllBtn.addEventListener('click', () => {
+      const bodies = group.querySelectorAll('.order-card__body');
+      const btns = group.querySelectorAll('.order-card__expand-btn');
+      const anyExpanded = Array.from(bodies).some(b => !b.hidden);
+      bodies.forEach(b => { b.hidden = anyExpanded; });
+      btns.forEach(b => {
+        b.textContent = anyExpanded ? '\u25b8 Details' : '\u25be Details';
+        b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
+    });
+    header.appendChild(toggleAllBtn);
     group.appendChild(header);
 
     for (const order of groupOrders) {

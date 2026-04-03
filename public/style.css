@@ -413,6 +413,21 @@ footer a:hover {
   font-weight: 500;
 }
 
+.order-group__toggle-all {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  font-size: 0.75rem;
+  color: #718096;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  border-radius: 3px;
+}
+
+.order-group__toggle-all:hover {
+  color: #2b4c8c;
+}
+
 /* ── Order cards ────────────────────────────────────────────── */
 .order-card {
   background: #fff;

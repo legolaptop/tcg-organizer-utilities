@@ -1712,16 +1712,9 @@
     const summary = order.orderSummary || {};
     const summaryWrap = document.createElement('div');
     summaryWrap.className = 'order-card__summary-bottom';
-    const qtyCol = document.createElement('div');
-    qtyCol.className = 'order-card__summary-qty';
-    const qtyLabel = document.createElement('span');
-    qtyLabel.className = 'order-card__summary-qty-label';
-    qtyLabel.textContent = 'Qty';
-    const qtyValue = document.createElement('span');
-    qtyValue.className = 'order-card__summary-qty-value';
-    qtyValue.textContent = summary.quantity > 0 ? String(summary.quantity) : '0';
-    qtyCol.appendChild(qtyLabel);
-    qtyCol.appendChild(qtyValue);
+    const qtyInline = document.createElement('div');
+    qtyInline.className = 'order-card__summary-qty-inline';
+    qtyInline.textContent = `Qty ${summary.quantity > 0 ? summary.quantity : 0}`;
 
     const totalsCol = document.createElement('div');
     totalsCol.className = 'order-card__summary-totals';
@@ -1731,7 +1724,7 @@
     appendSummaryRow(totalsCol, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : '$0.00', true);
 
     if (totalsCol.children.length > 0) {
-      summaryWrap.appendChild(qtyCol);
+      summaryWrap.appendChild(qtyInline);
       summaryWrap.appendChild(totalsCol);
       body.appendChild(summaryWrap);
     }

@@ -448,9 +448,9 @@
     const parts = text.split(new RegExp(`\\r?\\n--${escapeRegex(boundary)}(?:--)?(?:\\r?\\n|$)`));
     for (const part of parts) {
       if (/content-type:\s*text\/html/i.test(part)) {
-        const bodyStart = part.search(/\r?\n\r?\n/);
-        if (bodyStart === -1) continue;
-        let html = part.substring(bodyStart + 4);
+        const bodyMatch = part.match(/\r?\n\r?\n([\s\S]*)/);
+        if (!bodyMatch) continue;
+        let html = bodyMatch[1];
         if (/content-transfer-encoding:\s*quoted-printable/i.test(part)) {
           html = decodeQuotedPrintable(html);
         }
@@ -582,14 +582,14 @@
         const name = (link.title || link.textContent || '').trim();
         if (!name) return;
 
-        const lines = (itemCell.innerText || itemCell.textContent || '').split(/\n/).map(l => l.trim()).filter(Boolean);
+        const lines = (itemCell.textContent || '').split(/\n/).map(l => l.trim()).filter(Boolean);
         const set = lines.length > 1 ? lines[lines.length - 1] : '';
 
         let condition = 'Near Mint';
         let foil = false;
         const detailCell = row.querySelector('td.orderHistoryDetail');
         if (detailCell) {
-          const dt = (detailCell.innerText || detailCell.textContent || '').toLowerCase();
+          const dt = (detailCell.textContent || '').toLowerCase();
           if (dt.includes('foil')) foil = true;
           const cm = dt.match(/condition\s*:\s*([^,\n<]+)/);
           if (cm) condition = cm[1].trim();
@@ -610,7 +610,7 @@
         }
 
         let cardSeller = orderSeller;
-        const sbm = (row.innerText || row.textContent || '').match(/Sold by\s+([^\n]+)/i);
+        const sbm = (row.textContent || '').match(/Sold by\s+([^\n]+)/i);
         if (sbm) cardSeller = sbm[1].trim();
 
         cards.push({ name, set, condition, price, quantity, foil, cardSeller });

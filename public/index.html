@@ -88,21 +88,26 @@
         <!-- Save indicator -->
         <div id="save-indicator" class="save-indicator" aria-live="polite"></div>
 
-        <!-- MHT upload for tracker -->
+        <!-- File upload for tracker -->
         <section class="card" id="tracker-upload-section">
           <div class="tracker-upload-head">
-            <span class="section-label">Load Orders from MHT</span>
+            <span class="section-label">Load Orders from File</span>
             <div id="drive-auth-control" class="drive-auth-control" data-status="disconnected">
               <span id="drive-auth-status" class="drive-auth-status" hidden></span>
               <button id="drive-connect-btn" class="btn btn-secondary btn-sm">Connect Google Drive</button>
               <button id="drive-disconnect-btn" class="btn btn-secondary btn-sm drive-disconnect-btn" hidden>Disconnect</button>
             </div>
           </div>
-          <p class="hint">Upload your TCGPlayer order-history MHT export to populate the tracker.</p>
+          <p class="hint">Choose one or more TCGPlayer order-history files to populate the tracker.</p>
+          <details class="upload-help">
+            <summary>How to save a TCGPlayer order-history file</summary>
+            <p>Open your TCGPlayer Order History page in your browser, then use Save Page As and choose .mht, .mhtml, or .html.</p>
+          </details>
           <div class="file-upload">
             <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
-            <button id="tracker-parse-btn" class="btn btn-secondary">Load orders</button>
+            <button id="tracker-parse-btn" class="btn btn-secondary">Load now</button>
           </div>
+          <p class="hint">Files load automatically after selection. Use Load now to retry the current selection.</p>
           <div id="tracker-upload-msg" class="hint" style="margin-top:0.5rem;" hidden></div>
         </section>
 
@@ -149,7 +154,7 @@
 
         <!-- Empty state -->
         <div id="no-orders" class="card no-orders-msg" hidden>
-          <p>No orders match this filter. Upload an MHT file to get started.</p>
+          <p>No orders match this filter. Choose order-history files to get started.</p>
         </div>
 
         <!-- Export received cards -->

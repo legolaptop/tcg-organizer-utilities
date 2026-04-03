@@ -999,37 +999,72 @@
       total: 0,
     };
 
-    const table = orderEl.querySelector('[data-aid="tbl-sellerorderwidget-productsinorder"]');
-    if (!table) return summary;
+    // Helper to apply summary pair from label/value
+    function applySummaryPair(rawLabel, rawValue) {
+      const label = String(rawLabel || '').trim().toLowerCase();
+      const value = String(rawValue || '').trim();
+      const amount = parseDollarAmount(value);
+      let matched = false;
 
-    table.querySelectorAll('tr').forEach(row => {
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 2) return;
-      const rawLabel = (cells[0].textContent || '').trim().toLowerCase();
-      const rawValue = (cells[1].textContent || '').trim();
-      const amount = parseDollarAmount(rawValue);
-
-      if (rawLabel.startsWith('quantity')) {
-        const qty = parseInt(rawValue.replace(/[^\d]/g, ''), 10);
+      if (label.startsWith('quantity')) {
+        const qty = parseInt(value.replace(/[^\d]/g, ''), 10);
         if (!Number.isNaN(qty) && qty > 0) summary.quantity = qty;
-        return;
-      }
-      if (rawLabel.startsWith('subtotal')) {
+        matched = true;
+      } else if (label.startsWith('subtotal')) {
         summary.subtotal = amount;
-        return;
-      }
-      if (rawLabel.startsWith('shipping')) {
+        matched = true;
+      } else if (label.startsWith('shipping')) {
         summary.shipping = amount;
-        return;
-      }
-      if (rawLabel.includes('sales tax') || rawLabel.startsWith('tax')) {
+        matched = true;
+      } else if (label.includes('sales tax') || label.startsWith('tax')) {
         summary.salesTax = amount;
-        return;
-      }
-      if (rawLabel.startsWith('total') || rawLabel.includes('order total') || rawLabel.includes('grand total')) {
+        matched = true;
+      } else if (label.startsWith('total') || label.includes('order total') || label.includes('grand total')) {
         summary.total = amount;
+        matched = true;
       }
+
+      return matched;
+    }
+
+    // Try multiple table selectors for archive layout variations
+    let matchedAnyRow = false;
+    const tables = orderEl.querySelectorAll(
+      '[data-aid="tbl-sellerorderwidget-productsinorder"], [data-aid*="productsinorder"], [data-aid*="ordersummary"], table[class*="summary"]'
+    );
+
+    tables.forEach((table) => {
+      table.querySelectorAll('tr').forEach(row => {
+        const cells = row.querySelectorAll('td, th');
+        if (cells.length < 2) return;
+        if (applySummaryPair(cells[0].textContent || '', cells[1].textContent || '')) {
+          matchedAnyRow = true;
+        }
+      });
     });
+
+    if (matchedAnyRow) return summary;
+
+    // Fallback: parse from flattened text for archive versions with different structure
+    const text = (orderEl.textContent || '').replace(/\u00a0/g, ' ');
+    
+    const quantityMatch = text.match(/\bquantity\b\s*[:]?\s*(\d+)/i);
+    if (quantityMatch) {
+      const qty = parseInt(quantityMatch[1], 10);
+      if (!Number.isNaN(qty) && qty > 0) summary.quantity = qty;
+    }
+    
+    const subtotalMatch = text.match(/\bsubtotal\b\s*[:]?\s*\$?\s*([\d,.]+)/i);
+    if (subtotalMatch) summary.subtotal = parseFloat(subtotalMatch[1].replace(/,/g, '')) || 0;
+    
+    const shippingMatch = text.match(/\bshipping\b\s*[:]?\s*\$?\s*([\d,.]+)/i);
+    if (shippingMatch) summary.shipping = parseFloat(shippingMatch[1].replace(/,/g, '')) || 0;
+    
+    const salesTaxMatch = text.match(/\b(?:sales\s+tax|tax)\b\s*[:]?\s*\$?\s*([\d,.]+)/i);
+    if (salesTaxMatch) summary.salesTax = parseFloat(salesTaxMatch[1].replace(/,/g, '')) || 0;
+    
+    const totalMatch = text.match(/\b(?:order\s+total|grand\s+total|total)\b\s*[:]?\s*\$?\s*([\d,.]+)/i);
+    if (totalMatch) summary.total = parseFloat(totalMatch[1].replace(/,/g, '')) || 0;
 
     return summary;
   }

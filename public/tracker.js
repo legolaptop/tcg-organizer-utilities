@@ -920,6 +920,11 @@
     return `${card.name}|${card.set}|${card.condition}|${card.price}|${card.cardSeller}`;
   }
 
+  function toDateOnly(value) {
+    const parsed = new Date(value);
+    return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  }
+
   function groupOrdersByDate(orderArr) {
     const groups = new Map();
     const active = orderArr.filter(o => !o.canceled);
@@ -929,33 +934,36 @@
       groups.get(key).push(order);
     });
     return new Map(
-      [...groups.entries()].sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+      [...groups.entries()].sort(([a], [b]) => toDateOnly(a).getTime() - toDateOnly(b).getTime())
     );
   }
 
   function getOrderStatus(order, today) {
-    const est = new Date(order.estimatedDelivery);
-    if (est < today) return 'overdue';
+    const est = toDateOnly(order.estimatedDelivery);
+    const currentDay = toDateOnly(today);
+    if (est < currentDay) return 'overdue';
     if (!order.shippingConfirmed) return 'unconfirmed';
     if (order.trackingNumber) return 'tracked';
     return 'standard';
   }
 
   function getGroupLabel(dateStr, today) {
-    const est = new Date(dateStr);
-    if (est < today) return 'Overdue';
-    const diffDays = (est.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+    const est = toDateOnly(dateStr);
+    const currentDay = toDateOnly(today);
+    if (est < currentDay) return 'Overdue';
+    const diffDays = (est.getTime() - currentDay.getTime()) / (1000 * 60 * 60 * 24);
     if (diffDays <= 3) return 'Soon';
     return 'Incoming';
   }
 
   function getStats(orderArr, state, today) {
     const active = orderArr.filter(o => !o.canceled);
+    const currentDay = toDateOnly(today);
     return {
       total: active.length,
       totalCost: active.reduce((sum, o) => sum + (o.total || 0), 0),
       received: active.filter(o => state[o.id] && state[o.id].received).length,
-      overdue: active.filter(o => !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today).length,
+      overdue: active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < currentDay).length,
       unconfirmed: active.filter(o => !(state[o.id] && state[o.id].received) && !o.shippingConfirmed).length,
     };
   }
@@ -966,7 +974,7 @@
       case 'incoming':
         return active.filter(o => !(state[o.id] && state[o.id].received));
       case 'overdue':
-        return active.filter(o => !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today);
+        return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today));
       case 'received':
         return active.filter(o => state[o.id] && state[o.id].received);
       default:

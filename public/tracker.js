@@ -574,6 +574,22 @@
     };
   }
 
+  /**
+   * Returns the current value of a card state field (canceled or missing).
+   * Defaults to false if the card has no recorded state yet.
+   *
+   * @param {string} orderId
+   * @param {string} key - cardKey value
+   * @param {'canceled' | 'missing'} field
+   * @returns {boolean}
+   */
+  function getCurrentCardField(orderId, key, field) {
+    const orderState = trackerState[orderId];
+    if (!orderState || !orderState.cards) return false;
+    const cardState = orderState.cards[key];
+    return cardState ? !!cardState[field] : false;
+  }
+
   // ── Rendering ─────────────────────────────────────────────────
 
   function renderTracker() {
@@ -769,28 +785,30 @@
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
 
-    // Canceled checkbox
+    // Canceled checkbox — toggling on clears missing (mutually exclusive)
     const cancelLabel = document.createElement('label');
     cancelLabel.className = 'card-row__check-label';
     const cancelCb = document.createElement('input');
     cancelCb.type = 'checkbox';
     cancelCb.checked = cs.canceled;
     cancelCb.addEventListener('change', () => {
-      setCardStateFn(orderId, key, { canceled: cancelCb.checked, missing: cancelCb.checked ? false : (trackerState[orderId] && trackerState[orderId].cards && trackerState[orderId].cards[key] ? trackerState[orderId].cards[key].missing : false) });
+      const currentMissing = getCurrentCardField(orderId, key, 'missing');
+      setCardStateFn(orderId, key, { canceled: cancelCb.checked, missing: cancelCb.checked ? false : currentMissing });
       debouncedSave();
       renderTracker();
     });
     cancelLabel.appendChild(cancelCb);
     cancelLabel.appendChild(document.createTextNode(' Canceled'));
 
-    // Missing checkbox
+    // Missing checkbox — toggling on clears canceled (mutually exclusive)
     const missingLabel = document.createElement('label');
     missingLabel.className = 'card-row__check-label';
     const missingCb = document.createElement('input');
     missingCb.type = 'checkbox';
     missingCb.checked = cs.missing;
     missingCb.addEventListener('change', () => {
-      setCardStateFn(orderId, key, { missing: missingCb.checked, canceled: missingCb.checked ? false : (trackerState[orderId] && trackerState[orderId].cards && trackerState[orderId].cards[key] ? trackerState[orderId].cards[key].canceled : false) });
+      const currentCanceled = getCurrentCardField(orderId, key, 'canceled');
+      setCardStateFn(orderId, key, { missing: missingCb.checked, canceled: missingCb.checked ? false : currentCanceled });
       debouncedSave();
       renderTracker();
     });

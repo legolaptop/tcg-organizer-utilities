@@ -965,17 +965,30 @@
 
   function renderCardRow(card, key, orderId, cs) {
     const li = document.createElement('li');
-    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}`;
+    const hasIssue = cs.canceled || cs.missing;
+    li.className = `card-row${cs.canceled ? ' card-row--canceled' : ''}${cs.missing ? ' card-row--missing' : ''}${hasIssue ? ' card-row--open' : ''}`;
 
-    const name = document.createElement('span');
-    name.className = 'card-row__name';
-    name.textContent = `${card.name}`;
+    // Left: name + set
+    const nameBlock = document.createElement('span');
+    nameBlock.className = 'card-row__name';
+    const nameText = document.createElement('span');
+    nameText.className = 'card-row__name-text';
+    nameText.textContent = card.name;
+    const setEl = card.set ? document.createElement('span') : null;
+    if (setEl) {
+      setEl.className = 'card-row__set';
+      setEl.textContent = card.set;
+    }
+    nameBlock.appendChild(nameText);
+    if (setEl) nameBlock.appendChild(setEl);
 
+    // Right: condition / foil / price
     const meta = document.createElement('span');
     meta.className = 'card-row__meta';
-    meta.textContent = [card.set, card.condition, card.foil ? 'Foil' : '', card.price > 0 ? `$${card.price.toFixed(2)}` : '']
+    meta.textContent = [card.condition, card.foil ? 'Foil' : '', card.price > 0 ? `$${card.price.toFixed(2)}` : '']
       .filter(Boolean).join(' · ');
 
+    // Controls (hidden until row is clicked)
     const controls = document.createElement('div');
     controls.className = 'card-row__controls';
 
@@ -1012,7 +1025,13 @@
     controls.appendChild(cancelLabel);
     controls.appendChild(missingLabel);
 
-    li.appendChild(name);
+    // Toggle controls on row click (but not if clicking a checkbox directly)
+    li.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      li.classList.toggle('card-row--open');
+    });
+
+    li.appendChild(nameBlock);
     li.appendChild(meta);
     li.appendChild(controls);
     return li;

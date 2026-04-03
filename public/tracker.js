@@ -62,6 +62,7 @@
 
   const filterTabs = document.querySelectorAll('.filter-tab');
   const statTotal = document.getElementById('stat-total');
+  const statTotalCost = document.getElementById('stat-total-cost');
   const statReceived = document.getElementById('stat-received');
   const statOverdue = document.getElementById('stat-overdue');
   const statUnconfirmed = document.getElementById('stat-unconfirmed');
@@ -766,6 +767,7 @@
     const active = orderArr.filter(o => !o.canceled);
     return {
       total: active.length,
+      totalCost: active.reduce((sum, o) => sum + (o.total || 0), 0),
       received: active.filter(o => state[o.id] && state[o.id].received).length,
       overdue: active.filter(o => !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today).length,
       unconfirmed: active.filter(o => !(state[o.id] && state[o.id].received) && !o.shippingConfirmed).length,
@@ -847,6 +849,7 @@
     // Update stats
     const stats = getStats(orders, trackerState, today);
     statTotal.textContent = stats.total;
+    statTotalCost.textContent = `$${stats.totalCost.toFixed(2)}`;
     statReceived.textContent = stats.received;
     statOverdue.textContent = stats.overdue;
     statUnconfirmed.textContent = stats.unconfirmed;
@@ -1074,12 +1077,19 @@
     if (metaText) {
       meta.appendChild(document.createTextNode(metaText));
     }
+    const quantity = card.quantity != null ? card.quantity : 1;
     if (card.price > 0) {
       if (metaText) meta.appendChild(document.createTextNode(' · '));
       const priceEl = document.createElement('span');
       priceEl.className = 'card-row__price';
-      priceEl.textContent = `$${card.price.toFixed(2)}`;
+      priceEl.textContent = quantity > 1 ? `${quantity}x$${card.price.toFixed(2)}` : `$${card.price.toFixed(2)}`;
       meta.appendChild(priceEl);
+    } else if (quantity > 1) {
+      if (metaText) meta.appendChild(document.createTextNode(' · '));
+      const qtyEl = document.createElement('span');
+      qtyEl.className = 'card-row__price';
+      qtyEl.textContent = `Qty ${quantity}`;
+      meta.appendChild(qtyEl);
     }
 
     // Controls (hidden until row is clicked)

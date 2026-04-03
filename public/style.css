@@ -378,6 +378,7 @@ footer a:hover {
 }
 
 .stat-item--received .stat-value { color: #38a169; }
+.stat-item--cost .stat-value { color: #2b4c8c; }
 .stat-item--overdue  .stat-value { color: #c53030; }
 .stat-item--unconfirmed .stat-value { color: #c05621; }
 

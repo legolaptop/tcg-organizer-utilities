@@ -9,9 +9,8 @@
 
   // ── Configuration ────────────────────────────────────────────
   // Client ID from Google Cloud Console (Web Application OAuth 2.0 credential).
-  // See src/config.ts. Verify this is the correct Client ID format
-  // (should end in .apps.googleusercontent.com — no server-side client secret needed).
-  const GOOGLE_CLIENT_ID = 'client_secret_1072507978414-bifrk9rra5knrkf6rfpbjahb9174gd1t.apps.googleusercontent.com';
+  // See src/config.ts.
+  const GOOGLE_CLIENT_ID = '1072507978414-bifrk9rra5knrkf6rfpbjahb9174gd1t.apps.googleusercontent.com';
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';

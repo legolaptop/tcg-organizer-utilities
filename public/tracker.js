@@ -1373,11 +1373,19 @@
         return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today) && !(state[o.id] && state[o.id].exported));
       case 'received':
         return active.filter(o => state[o.id] && state[o.id].received);
+      case 'archived':
       case 'exported':
         return active.filter(o => state[o.id] && state[o.id].exported);
       default:
         return active.filter(o => !(state[o.id] && state[o.id].exported));
     }
+  }
+
+  function getReceivedOrderIdsForExport(orderArr, state, includeExported) {
+    return orderArr
+      .filter(o => !o.canceled && state[o.id] && state[o.id].received)
+      .filter(o => includeExported || !state[o.id].exported)
+      .map(o => o.id);
   }
 
   function getReceivedCardsForExport(orderArr, state, includeExported) {
@@ -1391,6 +1399,17 @@
           return !cs || (!cs.canceled && !cs.missing);
         });
       });
+  }
+
+  function getReceivedCardsForOrderExport(order, state) {
+    if (!order || order.canceled) return [];
+    const orderState = state[order.id];
+    if (!orderState || !orderState.received) return [];
+    const cardStates = orderState.cards || {};
+    return (order.cards || []).filter(card => {
+      const cs = cardStates[cardKey(card)];
+      return !cs || (!cs.canceled && !cs.missing);
+    });
   }
 
   // ── State mutation ────────────────────────────────────────────
@@ -1463,7 +1482,7 @@
         exportDockOpen = false;
       }
       exportFab.setAttribute('aria-expanded', String(exportDockOpen));
-      exportFab.textContent = exportDockOpen ? 'Close Export' : 'Export';
+      exportFab.textContent = exportDockOpen ? 'Close Export All' : 'Export All';
     }
     if (hasExportableOrders && exportDockOpen) {
       exportSection.classList.add('is-open');
@@ -1514,13 +1533,8 @@
     toggleAllBtn.addEventListener('click', () => {
       const cards = group.querySelectorAll('.order-card');
       const bodies = group.querySelectorAll('.order-card__body');
-      const btns = group.querySelectorAll('.order-card__expand-btn');
       const anyExpanded = Array.from(bodies).some(b => !b.hidden);
       bodies.forEach(b => { b.hidden = anyExpanded; });
-      btns.forEach(b => {
-        b.textContent = anyExpanded ? '\u25b8 Details' : '\u25be Details';
-        b.setAttribute('aria-expanded', String(!anyExpanded));
-      });
       cards.forEach(cardEl => {
         const orderId = cardEl.dataset.orderId;
         if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
@@ -1606,23 +1620,15 @@
       }
     }
 
-    // Exported badge
+    // Archived badge
     if (orderState.exported) {
-      badges.appendChild(makeBadge('Exported', 'exported'));
+      badges.appendChild(makeBadge('Archived', 'archived'));
     }
-
-    // Expand/collapse button
-    const expandBtn = document.createElement('button');
-    expandBtn.className = 'order-card__expand-btn';
-    expandBtn.setAttribute('aria-expanded', String(!isBodyHidden));
-    expandBtn.setAttribute('aria-label', `Toggle details for order ${order.id}`);
-    expandBtn.textContent = isBodyHidden ? '▸ Details' : '▾ Details';
 
     header.appendChild(receivedLabel);
     header.appendChild(info);
     header.appendChild(badges);
     if (order.total > 0) header.appendChild(totalEl);
-    header.appendChild(expandBtn);
     card.appendChild(header);
 
     // ── Body (expanded) ────────────────────────────────────────
@@ -1638,15 +1644,38 @@
     idEl.textContent = `Order ${order.id}`;
     metaRow.appendChild(idEl);
 
-    const summary = order.orderSummary || {};
-    const summaryEl = document.createElement('div');
-    summaryEl.className = 'order-card__summary';
-    appendSummaryItem(summaryEl, 'Qty', summary.quantity > 0 ? String(summary.quantity) : null);
-    appendSummaryItem(summaryEl, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : null);
-    appendSummaryItem(summaryEl, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : null);
-    if (summaryEl.children.length > 0) metaRow.appendChild(summaryEl);
+    // Single-order export action (distinct from the global export panel)
+    const exportSingleBtn = document.createElement('button');
+    exportSingleBtn.type = 'button';
+    exportSingleBtn.className = 'order-card__single-export-btn';
+    exportSingleBtn.textContent = 'Export to CSV';
+    exportSingleBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const orderCards = getReceivedCardsForOrderExport(order, trackerState);
+      if (orderCards.length === 0) {
+        alert('Mark this order as Received before exporting it.');
+        return;
+      }
+      const selectedFormat = exportFormat ? exportFormat.value : 'generic';
+      const originalText = exportSingleBtn.textContent;
+      exportSingleBtn.disabled = true;
+      exportSingleBtn.textContent = 'Preparing...';
+      try {
+        const enrichedCards = await enrichCardsForExport(orderCards);
+        const csv = formatCardsToCSV(enrichedCards, selectedFormat);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `order-${order.id}-${selectedFormat}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } finally {
+        exportSingleBtn.disabled = false;
+        exportSingleBtn.textContent = originalText;
+      }
+    });
+    metaRow.appendChild(exportSingleBtn);
 
     body.appendChild(metaRow);
 
@@ -1665,23 +1694,6 @@
       }
     }
 
-    // Exported toggle
-    const exportedLabel = document.createElement('label');
-    exportedLabel.className = 'order-card__exported-label';
-    const exportedCb = document.createElement('input');
-    exportedCb.type = 'checkbox';
-    exportedCb.className = 'order-card__exported-cb';
-    exportedCb.checked = !!orderState.exported;
-    exportedCb.setAttribute('aria-label', `Mark order ${order.id} as exported`);
-    exportedCb.addEventListener('change', () => {
-      markExported(order.id, exportedCb.checked);
-      debouncedSave();
-      renderTracker();
-    });
-    exportedLabel.appendChild(exportedCb);
-    exportedLabel.appendChild(document.createTextNode(' Exported'));
-    body.appendChild(exportedLabel);
-
     // Card list
     const cardList = document.createElement('ul');
     cardList.className = 'order-card__card-list';
@@ -1693,15 +1705,36 @@
     }
 
     body.appendChild(cardList);
+
+    const summary = order.orderSummary || {};
+    const summaryWrap = document.createElement('div');
+    summaryWrap.className = 'order-card__summary-bottom';
+    const qtyInline = document.createElement('div');
+    qtyInline.className = 'order-card__summary-qty-inline';
+    qtyInline.textContent = `Qty ${summary.quantity > 0 ? summary.quantity : 0}`;
+
+    const totalsCol = document.createElement('div');
+    totalsCol.className = 'order-card__summary-totals';
+    appendSummaryRow(totalsCol, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : '$0.00');
+    appendSummaryRow(totalsCol, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : '$0.00', true);
+
+    if (totalsCol.children.length > 0) {
+      summaryWrap.appendChild(qtyInline);
+      summaryWrap.appendChild(totalsCol);
+      body.appendChild(summaryWrap);
+    }
+
     card.appendChild(body);
 
-    // Expand toggle
-    expandBtn.addEventListener('click', () => {
+    // Expand toggle by clicking seller/price region in the header.
+    header.addEventListener('click', (event) => {
+      const interactive = event.target.closest('button, a, input, label');
+      if (interactive) return;
       const expanded = body.hidden === false;
       body.hidden = expanded;
       orderBodyHiddenState[order.id] = expanded;
-      expandBtn.textContent = expanded ? '▸ Details' : '▾ Details';
-      expandBtn.setAttribute('aria-expanded', String(!expanded));
     });
 
     return card;
@@ -1834,17 +1867,17 @@
     return badge;
   }
 
-  function appendSummaryItem(container, label, value) {
+  function appendSummaryRow(container, label, value, isTotal = false) {
     if (!value) return;
-    const item = document.createElement('span');
-    item.className = 'order-card__summary-item';
+    const item = document.createElement('div');
+    item.className = `order-card__summary-row${isTotal ? ' is-total' : ''}`;
 
     const labelEl = document.createElement('span');
-    labelEl.className = 'order-card__summary-label';
-    labelEl.textContent = `${label}: `;
+    labelEl.className = 'order-card__summary-row-label';
+    labelEl.textContent = label;
 
     const valueEl = document.createElement('span');
-    valueEl.className = 'order-card__summary-value';
+    valueEl.className = 'order-card__summary-row-value';
     valueEl.textContent = value;
 
     item.appendChild(labelEl);
@@ -1870,13 +1903,8 @@
   toggleAllBtn.addEventListener('click', () => {
       const cards = ordersList.querySelectorAll('.order-card');
       const bodies = ordersList.querySelectorAll('.order-card__body');
-      const btns = ordersList.querySelectorAll('.order-card__expand-btn');
       const anyExpanded = Array.from(bodies).some(b => !b.hidden);
       bodies.forEach(b => { b.hidden = anyExpanded; });
-      btns.forEach(b => {
-        b.textContent = anyExpanded ? '▸ Details' : '▾ Details';
-        b.setAttribute('aria-expanded', String(!anyExpanded));
-      });
       cards.forEach(cardEl => {
         const orderId = cardEl.dataset.orderId;
         if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
@@ -1889,7 +1917,7 @@
       exportDockOpen = !exportDockOpen;
       exportSection.classList.toggle('is-open', exportDockOpen);
       exportFab.setAttribute('aria-expanded', String(exportDockOpen));
-      exportFab.textContent = exportDockOpen ? 'Close Export' : 'Export';
+      exportFab.textContent = exportDockOpen ? 'Close Export All' : 'Export All';
     });
   }
 
@@ -1917,16 +1945,9 @@
       a.click();
       URL.revokeObjectURL(url);
 
-      // Mark the orders from which cards were exported as exported
-      const orderIds = new Set();
-      receivedCards.forEach(card => {
-        orders.forEach(order => {
-          if (order.cards?.some(c => cardKey(c) === cardKey(card))) {
-            orderIds.add(order.id);
-          }
-        });
-      });
-      orderIds.forEach(orderId => {
+      // Mark all included orders as archived once exported.
+      const exportedOrderIds = getReceivedOrderIdsForExport(orders, trackerState, includeExported);
+      exportedOrderIds.forEach(orderId => {
         markExported(orderId, true);
       });
       debouncedSave();

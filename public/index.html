@@ -107,11 +107,12 @@
         </section>
 
         <!-- Filter tabs -->
-        <div class="filter-tabs" role="tablist" aria-label="Filter orders">
+        <div class="filter-tabs" role="tablist" aria-label="Filter orders" id="filter-tabs-row">
           <button class="filter-tab filter-tab--active" data-filter="all" role="tab" aria-selected="true">All</button>
           <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
           <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
           <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
+          <button id="toggle-all-btn" class="toggle-all-btn">Collapse all</button>
         </div>
 
         <!-- Summary stats bar -->

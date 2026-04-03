@@ -67,6 +67,7 @@
   const noOrders = document.getElementById('no-orders');
   const exportSection = document.getElementById('tracker-export-section');
   const exportBtn = document.getElementById('tracker-export-btn');
+    const toggleAllBtn = document.getElementById('toggle-all-btn');
 
   // ── Tab navigation ────────────────────────────────────────────
 
@@ -1109,6 +1110,18 @@
       renderTracker();
     });
   });
+
+    toggleAllBtn.addEventListener('click', () => {
+      const bodies = ordersList.querySelectorAll('.order-card__body');
+      const btns = ordersList.querySelectorAll('.order-card__expand-btn');
+      const anyExpanded = Array.from(bodies).some(b => !b.hidden);
+      bodies.forEach(b => { b.hidden = anyExpanded; });
+      btns.forEach(b => {
+        b.textContent = anyExpanded ? '▸ Details' : '▾ Details';
+        b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
+    });
 
   // ── Export received cards ─────────────────────────────────────
 

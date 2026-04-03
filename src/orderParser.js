@@ -12,6 +12,11 @@ function cardKey(card) {
   return `${card.name}|${card.set}|${card.condition}|${card.price}|${card.cardSeller}`;
 }
 
+function toDateOnly(value) {
+  const parsed = new Date(value);
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+}
+
 /**
  * Groups active (non-canceled) orders by their estimatedDelivery date string,
  * sorted chronologically.
@@ -31,7 +36,7 @@ function groupOrdersByDate(orders) {
 
   return new Map(
     [...groups.entries()].sort(
-      ([a], [b]) => new Date(a).getTime() - new Date(b).getTime()
+      ([a], [b]) => toDateOnly(a).getTime() - toDateOnly(b).getTime()
     )
   );
 }
@@ -44,8 +49,9 @@ function groupOrdersByDate(orders) {
  * @returns {'overdue' | 'unconfirmed' | 'tracked' | 'standard'}
  */
 function getOrderStatus(order, today) {
-  const est = new Date(order.estimatedDelivery);
-  if (est < today) return 'overdue';
+  const est = toDateOnly(order.estimatedDelivery);
+  const currentDay = toDateOnly(today);
+  if (est < currentDay) return 'overdue';
   if (!order.shippingConfirmed) return 'unconfirmed';
   if (order.trackingNumber) return 'tracked';
   return 'standard';
@@ -59,9 +65,10 @@ function getOrderStatus(order, today) {
  * @returns {'Overdue' | 'Soon' | 'Incoming'}
  */
 function getGroupLabel(dateStr, today) {
-  const est = new Date(dateStr);
-  if (est < today) return 'Overdue';
-  const diffMs = est.getTime() - today.getTime();
+  const est = toDateOnly(dateStr);
+  const currentDay = toDateOnly(today);
+  if (est < currentDay) return 'Overdue';
+  const diffMs = est.getTime() - currentDay.getTime();
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
   if (diffDays <= 3) return 'Soon';
   return 'Incoming';
@@ -77,11 +84,12 @@ function getGroupLabel(dateStr, today) {
  */
 function getStats(orders, state, today) {
   const active = orders.filter(o => !o.canceled);
+  const currentDay = toDateOnly(today);
   return {
     total: active.length,
     received: active.filter(o => state[o.id] && state[o.id].received).length,
     overdue: active.filter(o =>
-      !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today
+      !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < currentDay
     ).length,
     unconfirmed: active.filter(o =>
       !(state[o.id] && state[o.id].received) && !o.shippingConfirmed

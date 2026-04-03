@@ -14,6 +14,9 @@
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';
+  const DRIVE_AUTOCONNECT_KEY = 'tcg-tracker-drive-autoconnect';
+  const AUTH_REQUEST_TIMEOUT_MS = 6000;
+  const AUTH_POPUP_PROBE_MS = 1200;
   const SAVE_DEBOUNCE_MS = 500;
 
   // ── Auth state ────────────────────────────────────────────────
@@ -25,6 +28,10 @@
 
   let tokenClient = null;   // google.accounts.oauth2.TokenClient
   let driveFileId = null;
+  let authRequestTimer = null;
+  let authPopupProbeTimer = null;
+  let authRequestMode = null; // 'silent' | 'interactive' | null
+  let authErrorMessage = 'Connection failed — try again';
 
   function isAuthenticated() {
     return (
@@ -37,6 +44,8 @@
   // ── App state ─────────────────────────────────────────────────
   let trackerState = {};   // TrackerState: Record<orderId, OrderState>
   let orders = [];         // Order[]
+  let orderBodyHiddenState = {}; // Ephemeral UI state: Record<orderId, boolean>
+  const scryfallByTcgplayerId = new Map(); // Session cache: Map<tcgplayerId, cardData|null>
   let activeFilter = 'all';
   let saveTimer = null;
 
@@ -60,13 +69,16 @@
 
   const filterTabs = document.querySelectorAll('.filter-tab');
   const statTotal = document.getElementById('stat-total');
+  const statTotalCost = document.getElementById('stat-total-cost');
   const statReceived = document.getElementById('stat-received');
   const statOverdue = document.getElementById('stat-overdue');
   const statUnconfirmed = document.getElementById('stat-unconfirmed');
   const ordersList = document.getElementById('orders-list');
   const noOrders = document.getElementById('no-orders');
   const exportSection = document.getElementById('tracker-export-section');
+  const exportFormat = document.getElementById('tracker-export-format');
   const exportBtn = document.getElementById('tracker-export-btn');
+    const toggleAllBtn = document.getElementById('toggle-all-btn');
 
   // ── Tab navigation ────────────────────────────────────────────
 
@@ -114,9 +126,20 @@
    * @param {google.accounts.oauth2.TokenResponse} response
    */
   async function handleTokenResponse(response) {
+    clearAuthRequestTimeout();
+    clearAuthPopupProbe();
+
     if (response.error) {
       console.error('OAuth error:', response.error);
-      setAuthStatus('error');
+      if (authRequestMode === 'interactive') {
+        if (response.error === 'popup_failed_to_open' || response.error === 'popup_closed') {
+          authErrorMessage = 'Google popup blocked or closed — allow popups and try again';
+        } else {
+          authErrorMessage = 'Connection failed — try again';
+        }
+      }
+      setAuthStatus(authRequestMode === 'silent' ? 'disconnected' : 'error');
+      authRequestMode = null;
       return;
     }
 
@@ -126,12 +149,12 @@
     };
 
     setAuthStatus('connected');
+    setDriveAutoconnectEnabled(true);
+    authRequestMode = null;
 
     // Load Drive state now that we have a valid token
     try {
-      const driveState = await loadStateFromDrive();
-      // Merge Drive state over any in-memory state (Drive wins for existing keys)
-      trackerState = Object.assign({}, trackerState, driveState);
+      applyDrivePayload(await loadStateFromDrive());
     } catch (e) {
       console.error('Failed to load state from Drive:', e);
     }
@@ -142,17 +165,27 @@
    * Connect to Google Drive. Shows the OAuth consent popup if needed.
    * If already authenticated, loads Drive state immediately.
    */
-  async function connectGoogleDrive() {
-    if (!window.google || !tokenClient) {
+  async function connectGoogleDrive(mode = 'interactive') {
+    if (!window.google) {
+      authErrorMessage = 'Google auth is not available — refresh and try again';
       setAuthStatus('error');
       return;
     }
 
+    if (!tokenClient) {
+      initGoogleAuth();
+      if (!tokenClient) {
+        authErrorMessage = 'Google auth is not ready yet — refresh and try again';
+        setAuthStatus('error');
+        return;
+      }
+    }
+
     if (isAuthenticated()) {
       setAuthStatus('connected');
+      setDriveAutoconnectEnabled(true);
       try {
-        const driveState = await loadStateFromDrive();
-        trackerState = Object.assign({}, trackerState, driveState);
+        applyDrivePayload(await loadStateFromDrive());
       } catch (e) {
         console.error('Failed to load state from Drive:', e);
       }
@@ -160,16 +193,21 @@
       return;
     }
 
+    authRequestMode = mode;
+    authErrorMessage = 'Connection failed — try again';
     setAuthStatus('connecting');
-    // prompt: '' requests a new token silently if consent was previously granted,
-    // or shows the consent popup if it is the first time.
-    tokenClient.requestAccessToken({ prompt: '' });
+    startAuthRequestTimeout(mode);
+    startAuthPopupProbe(mode);
+    tokenClient.requestAccessToken({ prompt: mode === 'silent' ? '' : 'consent' });
   }
 
   /**
    * Disconnect from Google Drive. Revokes the token and clears auth state.
    */
   function disconnectGoogleDrive() {
+    clearAuthRequestTimeout();
+    clearAuthPopupProbe();
+    authRequestMode = null;
     if (authState.accessToken) {
       google.accounts.oauth2.revoke(authState.accessToken, () => {
         console.log('Token revoked');
@@ -177,6 +215,8 @@
     }
     authState = { accessToken: null, expiresAt: null };
     driveFileId = null;
+    authErrorMessage = 'Connection failed — try again';
+    setDriveAutoconnectEnabled(false);
     setAuthStatus('disconnected');
   }
 
@@ -198,7 +238,13 @@
     // Token expired — request a new one silently
     return new Promise((resolve, reject) => {
       const originalCallback = tokenClient.callback;
+      const timer = setTimeout(() => {
+        tokenClient.callback = originalCallback;
+        reject(new Error('Token refresh timed out'));
+      }, AUTH_REQUEST_TIMEOUT_MS);
+
       tokenClient.callback = (response) => {
+        clearTimeout(timer);
         tokenClient.callback = originalCallback;
         if (response.error) {
           reject(new Error(response.error));
@@ -210,6 +256,50 @@
       };
       tokenClient.requestAccessToken({ prompt: '' });
     });
+  }
+
+  function clearAuthRequestTimeout() {
+    if (authRequestTimer) {
+      clearTimeout(authRequestTimer);
+      authRequestTimer = null;
+    }
+  }
+
+  function clearAuthPopupProbe() {
+    if (authPopupProbeTimer) {
+      clearTimeout(authPopupProbeTimer);
+      authPopupProbeTimer = null;
+    }
+  }
+
+  function startAuthPopupProbe(mode) {
+    clearAuthPopupProbe();
+    if (mode !== 'interactive') return;
+
+    authPopupProbeTimer = setTimeout(() => {
+      authPopupProbeTimer = null;
+      if (authRequestMode !== 'interactive') return;
+
+      // If the page still has focus shortly after requesting auth, the popup was likely blocked.
+      if (document.visibilityState === 'visible' && document.hasFocus()) {
+        authErrorMessage = 'Google popup blocked — allow popups and try again';
+        clearAuthRequestTimeout();
+        authRequestMode = null;
+        setAuthStatus('error');
+      }
+    }, AUTH_POPUP_PROBE_MS);
+  }
+
+  function startAuthRequestTimeout(mode) {
+    clearAuthRequestTimeout();
+    authRequestTimer = setTimeout(() => {
+      authRequestTimer = null;
+      authRequestMode = null;
+      if (mode === 'interactive') {
+        authErrorMessage = 'Connection timed out — allow popups and try again';
+      }
+      setAuthStatus(mode === 'silent' ? 'disconnected' : 'error');
+    }, AUTH_REQUEST_TIMEOUT_MS);
   }
 
   /**
@@ -246,7 +336,7 @@
       driveConnectBtn.disabled = false;
       driveConnectBtn.textContent = 'Connect Google Drive';
       driveDisconnectBtn.hidden = true;
-      driveAuthStatus.textContent = 'Connection failed — try again';
+      driveAuthStatus.textContent = authErrorMessage || 'Connection failed — try again';
       driveAuthStatus.className = 'drive-auth-status drive-auth-status--error';
       driveAuthStatus.hidden = false;
       driveConnectNote.hidden = false;
@@ -254,7 +344,7 @@
   }
 
   // Wire up Connect / Disconnect buttons
-  driveConnectBtn.addEventListener('click', () => connectGoogleDrive());
+  driveConnectBtn.addEventListener('click', () => connectGoogleDrive('interactive'));
   driveDisconnectBtn.addEventListener('click', () => disconnectGoogleDrive());
 
   // ── Drive persistence ─────────────────────────────────────────
@@ -277,12 +367,16 @@
       { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
     );
     if (!contentRes.ok) throw new Error(`Drive read failed: ${contentRes.status}`);
-    return await contentRes.json();
+    return normalizeDrivePayload(await contentRes.json());
   }
 
   async function saveStateToDrive() {
     if (!isAuthenticated()) return;
-    const body = JSON.stringify(trackerState);
+    const body = JSON.stringify({
+      version: 2,
+      orders,
+      trackerState,
+    });
 
     try {
       const token = await getValidAccessToken();
@@ -331,6 +425,60 @@
     setSaveStatus('saving');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveStateToDrive(), SAVE_DEBOUNCE_MS);
+  }
+
+  function normalizeDrivePayload(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return { orders: [], trackerState: {} };
+    }
+
+    // Backward compatibility: old payloads stored trackerState directly.
+    if (!Object.prototype.hasOwnProperty.call(payload, 'orders') && !Object.prototype.hasOwnProperty.call(payload, 'trackerState')) {
+      return { orders: [], trackerState: payload };
+    }
+
+    return {
+      orders: Array.isArray(payload.orders) ? payload.orders : [],
+      trackerState: payload.trackerState && typeof payload.trackerState === 'object' ? payload.trackerState : {},
+    };
+  }
+
+  function applyDrivePayload(payload) {
+    const normalized = normalizeDrivePayload(payload);
+    const mergedOrders = mergeOrders(normalized.orders, orders);
+    orders = mergedOrders;
+    trackerState = Object.assign({}, trackerState, normalized.trackerState);
+  }
+
+  function mergeOrders(primaryOrders, secondaryOrders) {
+    const merged = new Map();
+    (Array.isArray(primaryOrders) ? primaryOrders : []).forEach(order => {
+      if (order && order.id) merged.set(order.id, order);
+    });
+    (Array.isArray(secondaryOrders) ? secondaryOrders : []).forEach(order => {
+      if (order && order.id && !merged.has(order.id)) merged.set(order.id, order);
+    });
+    return Array.from(merged.values());
+  }
+
+  function setDriveAutoconnectEnabled(enabled) {
+    try {
+      if (enabled) {
+        localStorage.setItem(DRIVE_AUTOCONNECT_KEY, '1');
+      } else {
+        localStorage.removeItem(DRIVE_AUTOCONNECT_KEY);
+      }
+    } catch {
+      // Ignore storage restrictions.
+    }
+  }
+
+  function getDriveAutoconnectEnabled() {
+    try {
+      return localStorage.getItem(DRIVE_AUTOCONNECT_KEY) === '1';
+    } catch {
+      return false;
+    }
   }
 
   function setSaveStatus(status) {
@@ -398,7 +546,7 @@
       if (parts.length === 0) parts.push('Orders up to date');
       showUploadMsg(parts.join(' · '), false);
 
-      if (updatedCount > 0) debouncedSave();
+      if (updatedCount > 0 || visibleNewOrders.length > 0) debouncedSave();
 
       renderTracker();
     } catch (e) {
@@ -518,12 +666,14 @@
     const shippingConfirmed = !/Shipping Not Confirmed/i.test(orderEl.textContent);
     const canceled = /Canceled|Refunded in Full/i.test(orderEl.textContent);
     const partialRefund = extractPartialRefund(orderEl);
-    const total = extractOrderTotal(orderEl);
     const cards = extractCardsFromElement(orderEl, seller);
     if (cards.length === 0) {
       console.warn(`parseOrderFromElement: No cards found for order ${id}`);
       return null;
     }
+    // Prefer explicit order total from the page (includes shipping/tax when present).
+    // Fall back to summed card line items so totals remain useful when the label is missing.
+    const total = extractOrderTotal(orderEl, cards);
     return { id, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
   }
 
@@ -580,13 +730,43 @@
   }
 
   function extractTrackingNumber(orderEl) {
-    const link = orderEl.querySelector('a[href*="shipment"]');
-    if (link) {
-      const m = link.textContent.trim().match(/([A-Z0-9]{10,40})/);
-      if (m) return { number: m[1], url: link.href };
+    const linkCandidates = orderEl.querySelectorAll('a[href]');
+    for (const link of linkCandidates) {
+      const m = (link.textContent || '').trim().match(/([A-Z0-9]{10,40})/);
+      if (m) {
+        const number = m[1];
+        return { number, url: getTrackingUrl(orderEl, number) };
+      }
     }
     const m = orderEl.textContent.match(/(?:Tracking(?:\s+Number)?|Track)[:\s#]+([A-Z0-9]{10,40})/i);
-    return m ? { number: m[1], url: null } : null;
+    if (!m) return null;
+    const number = m[1];
+    return { number, url: getTrackingUrl(orderEl, number) };
+  }
+
+  function getTrackingUrl(orderEl, trackingNumber) {
+    const encoded = encodeURIComponent(trackingNumber);
+    const canonical = `https://tcgp.shipment.co/track/${encoded}`;
+
+    // Prefer a normalized archive link only if it already looks like a tracking URL.
+    const links = orderEl.querySelectorAll('a[href]');
+    for (const link of links) {
+      const rawHref = (link.getAttribute('href') || '').trim();
+      if (!rawHref) continue;
+      if (!/shipment|track/i.test(rawHref) && !rawHref.includes(trackingNumber)) continue;
+      const normalized = normalizeExternalUrl(rawHref, 'https://www.tcgplayer.com');
+      if (normalized && /shipment|track/i.test(normalized)) return normalized;
+    }
+
+    return canonical;
+  }
+
+  function normalizeExternalUrl(href, root) {
+    if (!href) return null;
+    if (/^https?:\/\//i.test(href)) return href;
+    if (href.startsWith('//')) return `https:${href}`;
+    if (href.startsWith('/')) return `${root}${href}`;
+    return `${root}/${href.replace(/^\.?\//, '')}`;
   }
 
   function extractPartialRefund(orderEl) {
@@ -594,9 +774,50 @@
     return m ? parseFloat(m[1]) : null;
   }
 
-  function extractOrderTotal(orderEl) {
-    const m = orderEl.textContent.match(/Order\s+Total[:\s]*\$?\s*([\d,.]+)/i);
-    return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+  function extractOrderTotal(orderEl, cards) {
+    const selectors = [
+      '[data-aid*="ordertotal"]',
+      '[data-aid*="order-total"]',
+      '[data-aid*="total"]',
+    ];
+    for (const selector of selectors) {
+      const totalEl = orderEl.querySelector(selector);
+      if (!totalEl) continue;
+      const parsed = parseDollarAmount(totalEl.textContent || '');
+      if (parsed > 0) return parsed;
+    }
+
+    const text = orderEl.textContent || '';
+    const patterns = [
+      /Order\s+Total[:\s]*\$?\s*([\d,.]+)/i,
+      /Grand\s+Total[:\s]*\$?\s*([\d,.]+)/i,
+      /Total[:\s]*\$?\s*([\d,.]+)/i,
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (!m) continue;
+      const parsed = parseFloat(String(m[1]).replace(/,/g, ''));
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+
+    return calculateCardsTotal(cards);
+  }
+
+  function parseDollarAmount(text) {
+    const m = String(text || '').match(/\$\s*([\d,.]+)/);
+    if (!m) return 0;
+    const parsed = parseFloat(m[1].replace(/,/g, ''));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function calculateCardsTotal(cards) {
+    if (!Array.isArray(cards) || cards.length === 0) return 0;
+    const sum = cards.reduce((acc, card) => {
+      const qty = card && card.quantity != null ? card.quantity : 1;
+      const unit = card && card.price != null ? card.price : 0;
+      return acc + (qty * unit);
+    }, 0);
+    return Number.isFinite(sum) && sum > 0 ? parseFloat(sum.toFixed(2)) : 0;
   }
 
   function extractCardsFromElement(orderEl, orderSeller) {
@@ -699,6 +920,11 @@
     return `${card.name}|${card.set}|${card.condition}|${card.price}|${card.cardSeller}`;
   }
 
+  function toDateOnly(value) {
+    const parsed = new Date(value);
+    return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  }
+
   function groupOrdersByDate(orderArr) {
     const groups = new Map();
     const active = orderArr.filter(o => !o.canceled);
@@ -708,32 +934,36 @@
       groups.get(key).push(order);
     });
     return new Map(
-      [...groups.entries()].sort(([a], [b]) => new Date(a).getTime() - new Date(b).getTime())
+      [...groups.entries()].sort(([a], [b]) => toDateOnly(a).getTime() - toDateOnly(b).getTime())
     );
   }
 
   function getOrderStatus(order, today) {
-    const est = new Date(order.estimatedDelivery);
-    if (est < today) return 'overdue';
+    const est = toDateOnly(order.estimatedDelivery);
+    const currentDay = toDateOnly(today);
+    if (est < currentDay) return 'overdue';
     if (!order.shippingConfirmed) return 'unconfirmed';
     if (order.trackingNumber) return 'tracked';
     return 'standard';
   }
 
   function getGroupLabel(dateStr, today) {
-    const est = new Date(dateStr);
-    if (est < today) return 'Overdue';
-    const diffDays = (est.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+    const est = toDateOnly(dateStr);
+    const currentDay = toDateOnly(today);
+    if (est < currentDay) return 'Overdue';
+    const diffDays = (est.getTime() - currentDay.getTime()) / (1000 * 60 * 60 * 24);
     if (diffDays <= 3) return 'Soon';
     return 'Incoming';
   }
 
   function getStats(orderArr, state, today) {
     const active = orderArr.filter(o => !o.canceled);
+    const currentDay = toDateOnly(today);
     return {
       total: active.length,
+      totalCost: active.reduce((sum, o) => sum + (o.total || 0), 0),
       received: active.filter(o => state[o.id] && state[o.id].received).length,
-      overdue: active.filter(o => !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today).length,
+      overdue: active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < currentDay).length,
       unconfirmed: active.filter(o => !(state[o.id] && state[o.id].received) && !o.shippingConfirmed).length,
     };
   }
@@ -744,7 +974,7 @@
       case 'incoming':
         return active.filter(o => !(state[o.id] && state[o.id].received));
       case 'overdue':
-        return active.filter(o => !(state[o.id] && state[o.id].received) && new Date(o.estimatedDelivery) < today);
+        return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today));
       case 'received':
         return active.filter(o => state[o.id] && state[o.id].received);
       default:
@@ -813,6 +1043,7 @@
     // Update stats
     const stats = getStats(orders, trackerState, today);
     statTotal.textContent = stats.total;
+    statTotalCost.textContent = `$${stats.totalCost.toFixed(2)}`;
     statReceived.textContent = stats.received;
     statOverdue.textContent = stats.overdue;
     statUnconfirmed.textContent = stats.unconfirmed;
@@ -861,6 +1092,7 @@
     toggleAllBtn.className = 'order-group__toggle-all';
     toggleAllBtn.textContent = 'Collapse all';
     toggleAllBtn.addEventListener('click', () => {
+      const cards = group.querySelectorAll('.order-card');
       const bodies = group.querySelectorAll('.order-card__body');
       const btns = group.querySelectorAll('.order-card__expand-btn');
       const anyExpanded = Array.from(bodies).some(b => !b.hidden);
@@ -868,6 +1100,10 @@
       btns.forEach(b => {
         b.textContent = anyExpanded ? '\u25b8 Details' : '\u25be Details';
         b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      cards.forEach(cardEl => {
+        const orderId = cardEl.dataset.orderId;
+        if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
       });
       toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
     });
@@ -883,8 +1119,10 @@
 
   function renderOrderCard(order, today) {
     const orderState = trackerState[order.id] || {};
-    const status = getOrderStatus(order, today);
     const isReceived = !!orderState.received;
+    const status = isReceived ? 'standard' : getOrderStatus(order, today);
+    const hasUiHiddenState = Object.prototype.hasOwnProperty.call(orderBodyHiddenState, order.id);
+    const isBodyHidden = hasUiHiddenState ? orderBodyHiddenState[order.id] : isReceived;
 
     const card = document.createElement('div');
     card.className = `order-card order-card--${status}${isReceived ? ' order-card--received' : ''}`;
@@ -904,6 +1142,7 @@
     receivedCb.setAttribute('aria-label', `Mark order ${order.id} as received`);
     receivedCb.addEventListener('change', () => {
       markReceived(order.id, receivedCb.checked);
+      orderBodyHiddenState[order.id] = receivedCb.checked;
       debouncedSave();
       renderTracker();
     });
@@ -914,10 +1153,6 @@
     const info = document.createElement('div');
     info.className = 'order-card__info';
 
-    const idEl = document.createElement('span');
-    idEl.className = 'order-card__id';
-    idEl.textContent = order.id;
-
     const sellerEl = document.createElement('span');
     sellerEl.className = 'order-card__seller';
     sellerEl.textContent = order.seller;
@@ -927,7 +1162,6 @@
     totalEl.textContent = order.total > 0 ? `$${order.total.toFixed(2)}` : '';
 
     info.appendChild(sellerEl);
-    info.appendChild(idEl);
 
     // Status badge
     const badges = document.createElement('div');
@@ -938,25 +1172,26 @@
     } else if (status === 'unconfirmed') {
       badges.appendChild(makeBadge('Not Shipped', 'unconfirmed'));
     } else if (status === 'tracked') {
-      const b = makeBadge('Tracked', 'tracked');
-      badges.appendChild(b);
-      const tn = document.createElement('a');
-      tn.className = 'order-card__tracking';
-      tn.textContent = order.trackingNumber.number;
-      if (order.trackingNumber.url) {
-        tn.href = order.trackingNumber.url;
-        tn.target = '_blank';
-        tn.rel = 'noopener noreferrer';
+      if (order.trackingNumber && order.trackingNumber.url) {
+        const trackedLink = document.createElement('a');
+        trackedLink.className = 'status-badge status-badge--tracked status-badge--link';
+        trackedLink.textContent = 'Tracked';
+        trackedLink.href = order.trackingNumber.url;
+        trackedLink.target = '_blank';
+        trackedLink.rel = 'noopener noreferrer';
+        if (order.trackingNumber.number) trackedLink.title = order.trackingNumber.number;
+        badges.appendChild(trackedLink);
+      } else {
+        badges.appendChild(makeBadge('Tracked', 'tracked'));
       }
-      badges.appendChild(tn);
     }
 
     // Expand/collapse button
     const expandBtn = document.createElement('button');
     expandBtn.className = 'order-card__expand-btn';
-    expandBtn.setAttribute('aria-expanded', String(!isReceived));
+    expandBtn.setAttribute('aria-expanded', String(!isBodyHidden));
     expandBtn.setAttribute('aria-label', `Toggle details for order ${order.id}`);
-    expandBtn.textContent = isReceived ? '▸ Details' : '▾ Details';
+    expandBtn.textContent = isBodyHidden ? '▸ Details' : '▾ Details';
 
     header.appendChild(receivedLabel);
     header.appendChild(info);
@@ -968,7 +1203,17 @@
     // ── Body (expanded) ────────────────────────────────────────
     const body = document.createElement('div');
     body.className = 'order-card__body';
-    body.hidden = isReceived;
+    body.hidden = isBodyHidden;
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'order-card__subheader';
+
+    const idEl = document.createElement('span');
+    idEl.className = 'order-card__id';
+    idEl.textContent = `Order ${order.id}`;
+    metaRow.appendChild(idEl);
+
+    body.appendChild(metaRow);
 
     // Partial refund banner
     if (order.partialRefund !== null && order.partialRefund !== undefined) {
@@ -998,6 +1243,7 @@
     expandBtn.addEventListener('click', () => {
       const expanded = body.hidden === false;
       body.hidden = expanded;
+      orderBodyHiddenState[order.id] = expanded;
       expandBtn.textContent = expanded ? '▸ Details' : '▾ Details';
       expandBtn.setAttribute('aria-expanded', String(!expanded));
     });
@@ -1031,12 +1277,19 @@
     if (metaText) {
       meta.appendChild(document.createTextNode(metaText));
     }
+    const quantity = card.quantity != null ? card.quantity : 1;
     if (card.price > 0) {
       if (metaText) meta.appendChild(document.createTextNode(' · '));
       const priceEl = document.createElement('span');
       priceEl.className = 'card-row__price';
-      priceEl.textContent = `$${card.price.toFixed(2)}`;
+      priceEl.textContent = quantity > 1 ? `${quantity} x $${card.price.toFixed(2)}` : `$${card.price.toFixed(2)}`;
       meta.appendChild(priceEl);
+    } else if (quantity > 1) {
+      if (metaText) meta.appendChild(document.createTextNode(' · '));
+      const qtyEl = document.createElement('span');
+      qtyEl.className = 'card-row__price';
+      qtyEl.textContent = `Qty ${quantity}`;
+      meta.appendChild(qtyEl);
     }
 
     // Controls (hidden until row is clicked)
@@ -1110,38 +1363,204 @@
     });
   });
 
+  toggleAllBtn.addEventListener('click', () => {
+      const cards = ordersList.querySelectorAll('.order-card');
+      const bodies = ordersList.querySelectorAll('.order-card__body');
+      const btns = ordersList.querySelectorAll('.order-card__expand-btn');
+      const anyExpanded = Array.from(bodies).some(b => !b.hidden);
+      bodies.forEach(b => { b.hidden = anyExpanded; });
+      btns.forEach(b => {
+        b.textContent = anyExpanded ? '▸ Details' : '▾ Details';
+        b.setAttribute('aria-expanded', String(!anyExpanded));
+      });
+      cards.forEach(cardEl => {
+        const orderId = cardEl.dataset.orderId;
+        if (orderId) orderBodyHiddenState[orderId] = anyExpanded;
+      });
+      toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
+  });
+
   // ── Export received cards ─────────────────────────────────────
 
-  exportBtn.addEventListener('click', () => {
+  exportBtn.addEventListener('click', async () => {
     const receivedCards = getReceivedCardsForExport(orders, trackerState);
     if (receivedCards.length === 0) {
       alert('No received cards to export yet.');
       return;
     }
-    const csv = formatCardsToCSV(receivedCards);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'received-cards.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    exportBtn.disabled = true;
+    const originalLabel = exportBtn.textContent;
+    exportBtn.textContent = 'Preparing...';
+    try {
+      const selectedFormat = exportFormat ? exportFormat.value : 'generic';
+      const enrichedCards = await enrichCardsForExport(receivedCards);
+      const csv = formatCardsToCSV(enrichedCards, selectedFormat);
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `received-cards-${selectedFormat}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      exportBtn.disabled = false;
+      exportBtn.textContent = originalLabel;
+    }
   });
 
-  function formatCardsToCSV(cards) {
-    const header = 'Name,Set name,Condition,Foil,Quantity,Purchase price';
-    const rows = cards.map(c => {
-      const fields = [
-        csvField(c.name || ''),
-        csvField(c.set || ''),
-        csvField(c.condition || 'Near Mint'),
-        c.foil ? 'foil' : '',
-        c.quantity != null ? c.quantity : 1,
-        c.price > 0 ? c.price.toFixed(2) : '',
-      ];
-      return fields.join(',');
+  async function enrichCardsForExport(cards) {
+    const ids = Array.from(new Set(
+      cards.map(c => c.tcgplayerId).filter(id => typeof id === 'string' && id.trim() !== '')
+    ));
+    const missingIds = ids.filter(id => !scryfallByTcgplayerId.has(id));
+    if (missingIds.length > 0) {
+      const fetched = await fetchAllScryfall(missingIds);
+      fetched.forEach((value, id) => scryfallByTcgplayerId.set(id, value));
+    }
+
+    return cards.map(card => {
+      const tcgId = card.tcgplayerId;
+      if (!tcgId) return card;
+      const scry = scryfallByTcgplayerId.get(tcgId);
+      if (!scry) return card;
+      return {
+        ...card,
+        name: card.name || scry.name,
+        setName: scry.setName || card.set || '',
+        setCode: scry.setCode || '',
+        collectorNumber: scry.collectorNumber || '',
+        scryfallId: scry.scryfallId || '',
+      };
     });
+  }
+
+  async function fetchScryfallByTcgplayerId(tcgId) {
+    try {
+      const res = await fetch(`https://api.scryfall.com/cards/tcgplayer/${tcgId}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return {
+        name: json.name || '',
+        setCode: (json.set || '').toUpperCase(),
+        setName: json.set_name || '',
+        collectorNumber: json.collector_number || '',
+        scryfallId: json.id || '',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function fetchAllScryfall(ids, concurrency = 6) {
+    const results = new Map();
+    const idArr = Array.from(ids);
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < idArr.length) {
+        const i = cursor++;
+        const id = idArr[i];
+        const card = await fetchScryfallByTcgplayerId(id);
+        results.set(id, card);
+      }
+    }
+
+    const workers = [];
+    for (let i = 0; i < Math.min(concurrency, idArr.length); i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    return results;
+  }
+
+  function formatCardsToCSV(cards, format) {
+    const kind = String(format || 'generic').toLowerCase();
+    switch (kind) {
+      case 'moxfield':
+        return formatCardsToMoxfieldCSV(cards);
+      case 'archidekt':
+        return formatCardsToArchidektCSV(cards);
+      case 'deckbox':
+        return formatCardsToDeckboxCSV(cards);
+      default:
+        return formatCardsToGenericCSV(cards);
+    }
+  }
+
+  function formatCardsToGenericCSV(cards) {
+    const header = 'Name,Set name,Condition,Foil,Quantity,Purchase price';
+    const rows = cards.map(c => [
+      csvField(c.name || ''),
+      csvField(c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      c.foil ? 'foil' : '',
+      c.quantity != null ? c.quantity : 1,
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
     return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToMoxfieldCSV(cards) {
+    const header = 'Count,Name,Edition,Condition,Language,Foil,Collector Number,Alter,Playtest Card,Purchase Price';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      csvField(c.name || ''),
+      csvField(c.setCode || c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      'English',
+      c.foil ? 'foil' : '',
+      csvField(c.collectorNumber || ''),
+      '',
+      'FALSE',
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToArchidektCSV(cards) {
+    const header = 'Quantity,Name,Edition,Condition,Foil,Purchase Price';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      csvField(c.name || ''),
+      csvField(c.setCode || c.set || ''),
+      csvField(c.condition || 'Near Mint'),
+      c.foil ? 'foil' : '',
+      c.price > 0 ? c.price.toFixed(2) : '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function formatCardsToDeckboxCSV(cards) {
+    const header = 'Count,Tradelist Count,Name,Edition,Card Number,Condition,Language,Foil,Signed,Artist Proof,Altered Art,Misprint,Promo,Textless';
+    const rows = cards.map(c => [
+      c.quantity != null ? c.quantity : 1,
+      '',
+      csvField(c.name || ''),
+      csvField(c.setName || c.set || ''),
+      csvField(c.collectorNumber || ''),
+      csvField(toShortCondition(c.condition || 'Near Mint')),
+      'English',
+      c.foil ? 'foil' : '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+    ].join(','));
+    return [header, ...rows].join('\n');
+  }
+
+  function toShortCondition(condition) {
+    const value = String(condition || '').trim().toLowerCase();
+    if (value.startsWith('near mint') || value === 'nm') return 'NM';
+    if (value.startsWith('lightly played') || value === 'lp') return 'LP';
+    if (value.startsWith('moderately played') || value === 'mp' || value === 'played') return 'MP';
+    if (value.startsWith('heavily played') || value === 'hp') return 'HP';
+    if (value.startsWith('damaged') || value === 'd' || value === 'dm') return 'D';
+    return condition;
   }
 
   function csvField(value) {
@@ -1157,7 +1576,15 @@
   function onPageReady() {
     initGoogleAuth();
     setAuthStatus('disconnected');
+    const tabParam = new URLSearchParams(window.location.search).get('t');
+    const initialTab = tabParam === 'converter' ? 'converter' : 'tracker';
+    showTab(initialTab);
     renderTracker();
+    if (getDriveAutoconnectEnabled()) {
+      connectGoogleDrive('silent').catch((e) => {
+        console.error('Auto-connect failed:', e);
+      });
+    }
   }
 
   if (document.readyState === 'loading') {

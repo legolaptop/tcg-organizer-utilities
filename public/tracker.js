@@ -96,11 +96,13 @@
   const ordersList = document.getElementById('orders-list');
   const noOrders = document.getElementById('no-orders');
   const exportSection = document.getElementById('tracker-export-section');
+  const exportFab = document.getElementById('tracker-export-fab');
   const exportFormat = document.getElementById('tracker-export-format');
   const exportBtn = document.getElementById('tracker-export-btn');
   const exportIncludeExported = document.getElementById('tracker-export-include-exported');
   const toggleAllBtn = document.getElementById('toggle-all-btn');
   const defaultTrackerParseBtnText = trackerParseBtn.textContent;
+  let exportDockOpen = false;
 
   // ── Tab navigation ────────────────────────────────────────────
 
@@ -1452,8 +1454,22 @@
     statOverdue.textContent = stats.overdue;
     statUnconfirmed.textContent = stats.unconfirmed;
 
-    // Show/hide export section
-    exportSection.hidden = stats.received === 0;
+    // Show/hide export controls
+    const hasExportableOrders = stats.received > 0;
+    exportSection.hidden = !hasExportableOrders;
+    if (exportFab) {
+      exportFab.hidden = !hasExportableOrders;
+      if (!hasExportableOrders) {
+        exportDockOpen = false;
+      }
+      exportFab.setAttribute('aria-expanded', String(exportDockOpen));
+      exportFab.textContent = exportDockOpen ? 'Close Export' : 'Export';
+    }
+    if (hasExportableOrders && exportDockOpen) {
+      exportSection.classList.add('is-open');
+    } else {
+      exportSection.classList.remove('is-open');
+    }
 
     // Get filtered orders
     const filtered = getFilteredOrders(orders, trackerState, activeFilter, today);
@@ -1867,6 +1883,15 @@
       });
       toggleAllBtn.textContent = anyExpanded ? 'Expand all' : 'Collapse all';
   });
+
+  if (exportFab) {
+    exportFab.addEventListener('click', () => {
+      exportDockOpen = !exportDockOpen;
+      exportSection.classList.toggle('is-open', exportDockOpen);
+      exportFab.setAttribute('aria-expanded', String(exportDockOpen));
+      exportFab.textContent = exportDockOpen ? 'Close Export' : 'Export';
+    });
+  }
 
   // ── Export received cards ─────────────────────────────────────
 

@@ -565,6 +565,25 @@ footer a:hover {
   cursor: pointer;
 }
 
+.order-card__exported-label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4a5568;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.order-card__exported-cb {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
 .order-card__info {
   display: flex;
   align-items: center;
@@ -695,6 +714,7 @@ footer a:hover {
 .status-badge--overdue     { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
 .status-badge--unconfirmed { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
 .status-badge--tracked     { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+.status-badge--exported    { background: #edf2f7; color: #2d3748; border: 1px solid #cbd5e0; }
 
 .status-badge--link {
   text-decoration: none;

@@ -478,8 +478,11 @@ footer a:hover {
 }
 
 .order-card__total {
-  font-size: 0.82rem;
-  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2b4c8c;
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .order-card__badges {

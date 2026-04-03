@@ -909,9 +909,8 @@
     totalEl.className = 'order-card__total';
     totalEl.textContent = order.total > 0 ? `$${order.total.toFixed(2)}` : '';
 
-    info.appendChild(idEl);
     info.appendChild(sellerEl);
-    if (order.total > 0) info.appendChild(totalEl);
+    info.appendChild(idEl);
 
     // Status badge
     const badges = document.createElement('div');
@@ -945,6 +944,7 @@
     header.appendChild(receivedLabel);
     header.appendChild(info);
     header.appendChild(badges);
+    if (order.total > 0) header.appendChild(totalEl);
     header.appendChild(expandBtn);
     card.appendChild(header);
 

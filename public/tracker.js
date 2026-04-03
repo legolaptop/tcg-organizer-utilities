@@ -464,6 +464,28 @@
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  /**
+   * Mirrors parseCondition() from src/parser.js.
+   * Strips "Foil" from the condition text, normalises to a canonical label,
+   * and returns { condition, foil } so the two fields never duplicate each other.
+   */
+  function parseCondition(text) {
+    if (!text) return { condition: 'Near Mint', foil: false };
+    const foil = /foil/i.test(text);
+    const cleaned = text.replace(/foil/gi, '').trim().toLowerCase();
+    const map = [
+      [/^nm\b|near\s*mint/, 'Near Mint'],
+      [/^lp\b|lightly\s*played/, 'Lightly Played'],
+      [/^mp\b|moderately\s*played/, 'Moderately Played'],
+      [/^hp\b|heavily\s*played/, 'Heavily Played'],
+      [/^d\b|damaged/, 'Damaged'],
+    ];
+    for (const [re, label] of map) {
+      if (re.test(cleaned)) return { condition: label, foil };
+    }
+    return { condition: cleaned || 'Near Mint', foil };
+  }
+
   function decodeQuotedPrintable(text) {
     if (!text) return '';
     return text
@@ -617,10 +639,8 @@
         let foil = false;
         const detailCell = row.querySelector('td.orderHistoryDetail');
         if (detailCell) {
-          const dt = (detailCell.textContent || '').toLowerCase();
-          if (dt.includes('foil')) foil = true;
-          const cm = dt.match(/condition\s*:\s*([^,\n<]+)/);
-          if (cm) condition = cm[1].trim();
+          const cm = (detailCell.textContent || '').match(/condition\s*:\s*([^,\n<]+)/i);
+          if (cm) ({ condition, foil } = parseCondition(cm[1].trim()));
         }
 
         let price = 0;

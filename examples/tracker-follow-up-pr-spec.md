@@ -55,9 +55,9 @@ PR title:
 
 Files in scope:
 - `index.html`
-- `public/index.html`
-- `public/style.css`
-- `public/tracker.js`
+- `docs/index.html`
+- `docs/style.css`
+- `docs/tracker.js`
 
 Primary goals:
 - Replace MHT-specific wording with generic file wording.
@@ -80,8 +80,8 @@ PR title:
 `fix: harden local file parsing and tracking link safety`
 
 Files in scope:
-- `public/tracker.js`
-- `public/app.js`
+- `docs/tracker.js`
+- `docs/app.js`
 
 Primary goals:
 - Add early validation for malformed or unsupported files.
@@ -103,8 +103,8 @@ PR title:
 `feat: parse order summary totals and show them in tracker details`
 
 Files in scope:
-- `public/tracker.js`
-- `public/style.css`
+- `docs/tracker.js`
+- `docs/style.css`
 
 Primary goals:
 - Parse `quantity`, `subtotal`, `shipping`, `sales tax`, and `total` from each order summary.
@@ -126,8 +126,8 @@ PR title:
 `feat: add exact-printing Scryfall links and harden live lookup usage`
 
 Files in scope:
-- `public/tracker.js`
-- `public/app.js`
+- `docs/tracker.js`
+- `docs/app.js`
 
 Primary goals:
 - Link tracker card names to exact Scryfall printings when available.
@@ -151,7 +151,7 @@ Recommended order:
 
 Why:
 
-- PR 3 and PR 4 both want to edit `public/tracker.js` heavily.
+- PR 3 and PR 4 both want to edit `docs/tracker.js` heavily.
 - PR 1 and PR 2 have cleaner separation and less merge conflict risk.
 
 ## How To Use This With Cloud Agents

@@ -1125,7 +1125,7 @@
       if (metaText) meta.appendChild(document.createTextNode(' · '));
       const priceEl = document.createElement('span');
       priceEl.className = 'card-row__price';
-      priceEl.textContent = quantity > 1 ? `${quantity}x$${card.price.toFixed(2)}` : `$${card.price.toFixed(2)}`;
+      priceEl.textContent = quantity > 1 ? `${quantity} x $${card.price.toFixed(2)}` : `$${card.price.toFixed(2)}`;
       meta.appendChild(priceEl);
     } else if (quantity > 1) {
       if (metaText) meta.appendChild(document.createTextNode(' · '));

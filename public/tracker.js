@@ -757,15 +757,81 @@
     const shippingConfirmed = !/Shipping Not Confirmed/i.test(orderEl.textContent);
     const canceled = /Canceled|Refunded in Full/i.test(orderEl.textContent);
     const partialRefund = extractPartialRefund(orderEl);
+    const orderSummary = extractOrderSummary(orderEl);
     const cards = extractCardsFromElement(orderEl, seller);
     if (cards.length === 0) {
       console.warn(`parseOrderFromElement: No cards found for order ${id}`);
       return null;
     }
-    // Prefer explicit order total from the page (includes shipping/tax when present).
-    // Fall back to summed card line items so totals remain useful when the label is missing.
-    const total = extractOrderTotal(orderEl, cards);
-    return { id, date, seller, total, estimatedDelivery, trackingNumber, shippingConfirmed, canceled, partialRefund, cards };
+    // Use summary total as the canonical per-order total when present.
+    const fallbackTotal = extractOrderTotal(orderEl, cards);
+    const canonicalTotal = orderSummary.total > 0 ? orderSummary.total : fallbackTotal;
+    if (!(orderSummary.quantity > 0)) {
+      orderSummary.quantity = cards.reduce((sum, c) => sum + (c.quantity || 1), 0);
+    }
+    if (!(orderSummary.subtotal > 0)) {
+      orderSummary.subtotal = calculateCardsTotal(cards);
+    }
+    if (!(orderSummary.total > 0)) {
+      orderSummary.total = canonicalTotal;
+    }
+    return {
+      id,
+      date,
+      seller,
+      total: canonicalTotal,
+      orderSummary,
+      estimatedDelivery,
+      trackingNumber,
+      shippingConfirmed,
+      canceled,
+      partialRefund,
+      cards,
+    };
+  }
+
+  function extractOrderSummary(orderEl) {
+    const summary = {
+      quantity: 0,
+      subtotal: 0,
+      shipping: 0,
+      salesTax: 0,
+      total: 0,
+    };
+
+    const table = orderEl.querySelector('[data-aid="tbl-sellerorderwidget-productsinorder"]');
+    if (!table) return summary;
+
+    table.querySelectorAll('tr').forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 2) return;
+      const rawLabel = (cells[0].textContent || '').trim().toLowerCase();
+      const rawValue = (cells[1].textContent || '').trim();
+      const amount = parseDollarAmount(rawValue);
+
+      if (rawLabel.startsWith('quantity')) {
+        const qty = parseInt(rawValue.replace(/[^\d]/g, ''), 10);
+        if (!Number.isNaN(qty) && qty > 0) summary.quantity = qty;
+        return;
+      }
+      if (rawLabel.startsWith('subtotal')) {
+        summary.subtotal = amount;
+        return;
+      }
+      if (rawLabel.startsWith('shipping')) {
+        summary.shipping = amount;
+        return;
+      }
+      if (rawLabel.includes('sales tax') || rawLabel.startsWith('tax')) {
+        summary.salesTax = amount;
+        return;
+      }
+      if (rawLabel.startsWith('total') || rawLabel.includes('order total') || rawLabel.includes('grand total')) {
+        summary.total = amount;
+      }
+    });
+
+    return summary;
   }
 
   function extractOrderId(orderEl) {
@@ -1305,6 +1371,16 @@
     idEl.textContent = `Order ${order.id}`;
     metaRow.appendChild(idEl);
 
+    const summary = order.orderSummary || {};
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'order-card__summary';
+    appendSummaryItem(summaryEl, 'Qty', summary.quantity > 0 ? String(summary.quantity) : null);
+    appendSummaryItem(summaryEl, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : null);
+    appendSummaryItem(summaryEl, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : null);
+    appendSummaryItem(summaryEl, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : null);
+    appendSummaryItem(summaryEl, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : null);
+    if (summaryEl.children.length > 0) metaRow.appendChild(summaryEl);
+
     body.appendChild(metaRow);
 
     // Partial refund banner
@@ -1442,6 +1518,24 @@
     badge.className = `status-badge status-badge--${type}`;
     badge.textContent = text;
     return badge;
+  }
+
+  function appendSummaryItem(container, label, value) {
+    if (!value) return;
+    const item = document.createElement('span');
+    item.className = 'order-card__summary-item';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'order-card__summary-label';
+    labelEl.textContent = `${label}: `;
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'order-card__summary-value';
+    valueEl.textContent = value;
+
+    item.appendChild(labelEl);
+    item.appendChild(valueEl);
+    container.appendChild(item);
   }
 
   // ── Filter tabs ───────────────────────────────────────────────

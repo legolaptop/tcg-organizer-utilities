@@ -1002,10 +1002,6 @@
     const info = document.createElement('div');
     info.className = 'order-card__info';
 
-    const idEl = document.createElement('span');
-    idEl.className = 'order-card__id';
-    idEl.textContent = order.id;
-
     const sellerEl = document.createElement('span');
     sellerEl.className = 'order-card__seller';
     sellerEl.textContent = order.seller;
@@ -1015,7 +1011,6 @@
     totalEl.textContent = order.total > 0 ? `$${order.total.toFixed(2)}` : '';
 
     info.appendChild(sellerEl);
-    info.appendChild(idEl);
 
     // Status badge
     const badges = document.createElement('div');
@@ -1057,6 +1052,33 @@
     const body = document.createElement('div');
     body.className = 'order-card__body';
     body.hidden = isBodyHidden;
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'order-card__subheader';
+
+    const idEl = document.createElement('span');
+    idEl.className = 'order-card__id';
+    idEl.textContent = `Order ${order.id}`;
+    metaRow.appendChild(idEl);
+
+    if (order.trackingNumber && order.trackingNumber.number) {
+      const trackingWrap = document.createElement('span');
+      trackingWrap.className = 'order-card__submeta';
+      trackingWrap.appendChild(document.createTextNode('Tracking '));
+
+      const tn = document.createElement(order.trackingNumber.url ? 'a' : 'span');
+      tn.className = 'order-card__tracking';
+      tn.textContent = order.trackingNumber.number;
+      if (order.trackingNumber.url) {
+        tn.href = order.trackingNumber.url;
+        tn.target = '_blank';
+        tn.rel = 'noopener noreferrer';
+      }
+      trackingWrap.appendChild(tn);
+      metaRow.appendChild(trackingWrap);
+    }
+
+    body.appendChild(metaRow);
 
     // Partial refund banner
     if (order.partialRefund !== null && order.partialRefund !== undefined) {

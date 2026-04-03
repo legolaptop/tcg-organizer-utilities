@@ -125,7 +125,7 @@ function isCanceled(html) {
  *             estimatedDelivery: string, trackingNumber: string|null,
  *             shippingConfirmed: boolean, partialRefund: number|null }}
  */
-function extractOrderMeta(html) {
+function extractOrderMeta(html, orderIndex = 0) {
   // ── Order ID ────────────────────────────────────────────────
   let id =
     (html.match(/data-orderid=['"]([^'"]+)['"]/i) ||
@@ -139,7 +139,7 @@ function extractOrderMeta(html) {
     if (m) id = m[1];
   }
 
-  if (!id) id = `UNKNOWN-${Math.random().toString(36).slice(2, 9).toUpperCase()}`;
+  if (!id) id = `UNKNOWN-${orderIndex}`;
 
   // ── Seller ──────────────────────────────────────────────────
   const seller =
@@ -229,6 +229,7 @@ function parseOrdersFromHtml(htmlText) {
   const tableRegex = /<table\b[^>]*class="orderTable"[^>]*>([\s\S]*?)<\/table>/gi;
   let tableMatch;
   let lastEnd = 0;
+  let orderIndex = 0;
 
   while ((tableMatch = tableRegex.exec(htmlText)) !== null) {
     const precedingHtml = htmlText.slice(lastEnd, tableMatch.index);
@@ -238,7 +239,7 @@ function parseOrdersFromHtml(htmlText) {
     if (isFullyRefunded(precedingHtml)) continue;
 
     const canceled = isCanceled(precedingHtml);
-    const meta = extractOrderMeta(precedingHtml);
+    const meta = extractOrderMeta(precedingHtml, orderIndex);
 
     // Parse raw card rows from the table
     const rawItems = parseRowsFromHtml(tableMatch[1]);
@@ -267,6 +268,7 @@ function parseOrdersFromHtml(htmlText) {
       partialRefund: meta.partialRefund,
       cards,
     });
+    orderIndex++;
   }
 
   return orders;

@@ -36,37 +36,53 @@ describe('debounce', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  test('calls fn after the delay', () => {
-    const fn = jest.fn();
+  test('calls fn after the delay and resolves the returned Promise', async () => {
+    const fn = jest.fn().mockResolvedValue('result');
     const debounced = debounce(fn, 100);
-    debounced('arg1');
+    const promise = debounced('arg1');
     jest.advanceTimersByTime(100);
+    const result = await promise;
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('arg1');
+    expect(result).toBe('result');
   });
 
-  test('resets the timer on each call (only fires once)', () => {
-    const fn = jest.fn();
+  test('resets the timer on each call — only the last invocation fires', async () => {
+    const fn = jest.fn().mockResolvedValue(undefined);
     const debounced = debounce(fn, 100);
     debounced('first');
     jest.advanceTimersByTime(50);
-    debounced('second');
+    const lastPromise = debounced('second');
     jest.advanceTimersByTime(50);
-    expect(fn).not.toHaveBeenCalled(); // Timer reset
+    expect(fn).not.toHaveBeenCalled(); // Timer was reset
     jest.advanceTimersByTime(50);
+    await lastPromise;
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('second');
   });
 
-  test('calls fn with the latest arguments after delay', () => {
-    const fn = jest.fn();
-    const debounced = debounce(fn, 200);
-    debounced('a');
-    debounced('b');
-    debounced('c');
-    jest.advanceTimersByTime(200);
+  test('all pending callers share the same resolved value', async () => {
+    const fn = jest.fn().mockResolvedValue(42);
+    const debounced = debounce(fn, 100);
+    const p1 = debounced('a');
+    const p2 = debounced('b');
+    const p3 = debounced('c');
+    jest.advanceTimersByTime(100);
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
     expect(fn).toHaveBeenCalledTimes(1);
-    expect(fn).toHaveBeenCalledWith('c');
+    expect(r1).toBe(42);
+    expect(r2).toBe(42);
+    expect(r3).toBe(42);
+  });
+
+  test('all pending callers receive the rejection when fn throws', async () => {
+    const err = new Error('boom');
+    const fn = jest.fn().mockRejectedValue(err);
+    const debounced = debounce(fn, 100);
+    const p1 = debounced();
+    const p2 = debounced();
+    jest.advanceTimersByTime(100);
+    await expect(Promise.all([p1, p2])).rejects.toThrow('boom');
   });
 });
 
@@ -188,48 +204,48 @@ describe('setCardState', () => {
 // ── saveWithIndicator ─────────────────────────────────────────────────────────
 
 describe('saveWithIndicator', () => {
+  const originalFetch = global.fetch;
+
   beforeEach(() => resetDriveFileId());
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
 
   test('calls onStatus with "saving" then "saved" on success', async () => {
     const statuses = [];
-    const mockSave = jest.fn().mockResolvedValue(undefined);
 
-    // Temporarily replace saveStateToDrive via a minimal inline test
-    const { saveWithIndicator: localSave } = (() => {
-      async function saveWithIndicator(state, accessToken, onStatus, _save) {
-        onStatus('saving');
-        try {
-          await _save(state, accessToken);
-          onStatus('saved');
-        } catch {
-          onStatus('error');
-        }
-      }
-      return { saveWithIndicator };
-    })();
+    // driveFileId is null after resetDriveFileId(), so saveStateToDrive takes
+    // the "create" (POST multipart) path and expects { id } from fetch.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'drive-file-id' }),
+      text: async () => '',
+    });
 
-    await localSave({}, 'token', (s) => statuses.push(s), mockSave);
+    await saveWithIndicator({}, 'token', (s) => statuses.push(s));
     expect(statuses).toEqual(['saving', 'saved']);
   });
 
-  test('calls onStatus with "saving" then "error" on failure', async () => {
+  test('calls onStatus with "saving" then "error" on fetch rejection', async () => {
     const statuses = [];
-    const mockSave = jest.fn().mockRejectedValue(new Error('network error'));
 
-    const { saveWithIndicator: localSave } = (() => {
-      async function saveWithIndicator(state, accessToken, onStatus, _save) {
-        onStatus('saving');
-        try {
-          await _save(state, accessToken);
-          onStatus('saved');
-        } catch {
-          onStatus('error');
-        }
-      }
-      return { saveWithIndicator };
-    })();
+    global.fetch = jest.fn().mockRejectedValue(new Error('network error'));
 
-    await localSave({}, 'token', (s) => statuses.push(s), mockSave);
+    await saveWithIndicator({}, 'token', (s) => statuses.push(s));
+    expect(statuses).toEqual(['saving', 'error']);
+  });
+
+  test('calls onStatus with "saving" then "error" on HTTP error response', async () => {
+    const statuses = [];
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => 'Forbidden',
+    });
+
+    await saveWithIndicator({}, 'token', (s) => statuses.push(s));
     expect(statuses).toEqual(['saving', 'error']);
   });
 });

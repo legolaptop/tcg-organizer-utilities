@@ -1,7 +1,7 @@
 'use strict';
 
 const { parseOrdersFromHtml } = require('./orderParser');
-const { debouncedSave } = require('./driveSync');
+const { saveStateToDrive } = require('./driveSync');
 
 // ─── JSDoc type definitions ───────────────────────────────────────────────────
 
@@ -41,8 +41,11 @@ const { debouncedSave } = require('./driveSync');
 function diffShippingStatus(previousOrders, freshOrders) {
   const updates = [];
 
+  // Build a Map for O(n) lookup instead of repeated Array.find (O(n²))
+  const prevMap = new Map(previousOrders.map((o) => [o.id, o]));
+
   freshOrders.forEach((fresh) => {
-    const prev = previousOrders.find((o) => o.id === fresh.id);
+    const prev = prevMap.get(fresh.id);
     if (!prev) return; // New order — handled separately
 
     const trackingChanged = fresh.trackingNumber !== prev.trackingNumber;
@@ -77,19 +80,24 @@ function diffShippingStatus(previousOrders, freshOrders) {
 function applyShippingUpdates(state, updates, orders) {
   const newState = { ...state };
 
+  // Build a Map for O(n) lookup instead of repeated Array.find
+  const ordersMap = new Map(orders.map((o) => [o.id, o]));
+  let updatedCount = 0;
+
   updates.forEach((update) => {
     // Never overwrite a manually received order
     if (newState[update.orderId]?.received) return;
 
     // Update the in-memory order object
-    const order = orders.find((o) => o.id === update.orderId);
+    const order = ordersMap.get(update.orderId);
     if (order) {
       order.trackingNumber = update.trackingNumber;
       order.shippingConfirmed = update.shippingConfirmed;
+      updatedCount++;
     }
   });
 
-  return { newState, updatedCount: updates.length };
+  return { newState, updatedCount };
 }
 
 /**
@@ -97,7 +105,9 @@ function applyShippingUpdates(state, updates, orders) {
  * 1. Parses the file into a fresh Order array.
  * 2. Diffs shipping status against the existing orders.
  * 3. Applies updates (without touching `received` or `note`).
- * 4. Persists updated state to Drive if anything changed.
+ * 4. Persists updated state to Drive immediately if anything changed.
+ *    (Uses `saveStateToDrive` directly rather than the debounced variant so
+ *    the upload-triggered write is guaranteed to complete.)
  *
  * Intended to be wired directly to the file-upload event in the UI layer.
  * The caller is responsible for providing the current `accessToken`.
@@ -122,9 +132,10 @@ async function onMhtUpload(htmlText, existingOrders, state, accessToken) {
   // 4. Apply updates (mutates existingOrders in place)
   const { newState, updatedCount } = applyShippingUpdates(state, updates, existingOrders);
 
-  // 5. Persist to Drive if anything changed
+  // 5. Persist immediately to Drive if anything changed.
+  //    Direct save (not debounced) to ensure the upload-triggered write completes.
   if (updatedCount > 0) {
-    await debouncedSave(newState, accessToken);
+    await saveStateToDrive(newState, accessToken);
   }
 
   return { freshOrders, updatedCount, newOrderCount };

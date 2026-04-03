@@ -58,6 +58,10 @@ async function loadStateFromDrive(accessToken) {
       `?spaces=${DRIVE_SPACE}&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+  if (!searchRes.ok) {
+    const text = await searchRes.text();
+    throw new Error(`Drive search failed (${searchRes.status}): ${text}`);
+  }
   const { files } = await searchRes.json();
 
   if (!files || files.length === 0) {
@@ -71,6 +75,10 @@ async function loadStateFromDrive(accessToken) {
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
+  if (!contentRes.ok) {
+    const text = await contentRes.text();
+    throw new Error(`Drive content fetch failed (${contentRes.status}): ${text}`);
+  }
   return await contentRes.json();
 }
 
@@ -91,7 +99,7 @@ async function saveStateToDrive(state, accessToken) {
 
   if (driveFileId) {
     // Update existing file
-    await fetch(
+    const patchRes = await fetch(
       `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
       {
         method: 'PATCH',
@@ -102,6 +110,10 @@ async function saveStateToDrive(state, accessToken) {
         body,
       }
     );
+    if (!patchRes.ok) {
+      const text = await patchRes.text();
+      throw new Error(`Drive PATCH failed (${patchRes.status}): ${text}`);
+    }
   } else {
     // Create new file (multipart upload)
     const metadata = { name: DRIVE_FILE_NAME, parents: [DRIVE_SPACE] };
@@ -120,6 +132,10 @@ async function saveStateToDrive(state, accessToken) {
         body: form,
       }
     );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Drive POST failed (${res.status}): ${text}`);
+    }
     const { id } = await res.json();
     driveFileId = id;
   }
@@ -128,19 +144,46 @@ async function saveStateToDrive(state, accessToken) {
 // ─── Debounce helper ─────────────────────────────────────────────────────────
 
 /**
- * Returns a debounced version of `fn` that delays execution by `ms`
- * milliseconds, resetting the timer on each new call.
+ * Returns a Promise-aware debounced version of `fn` that delays execution by
+ * `ms` milliseconds, resetting the timer on each new call.
  *
- * @template {(...args: any[]) => any} T
- * @param {T} fn
+ * Every call returns a Promise for the next scheduled execution. All callers
+ * that invoked the debounced function during the current window share the same
+ * Promise — they all resolve/reject together when `fn` finally runs.
+ *
+ * This makes it safe to `await` the debounced function and propagates errors
+ * from the underlying async function to all waiting callers.
+ *
+ * @param {(...args: any[]) => any} fn
  * @param {number} ms
- * @returns {T}
+ * @returns {(...args: any[]) => Promise<any>}
  */
 function debounce(fn, ms) {
   let timer;
+  let lastArgs;
+  let lastThis;
+  /** @type {Array<{ resolveFn: (value: any) => void, rejectFn: (reason?: any) => void }>} */
+  let pending = [];
+
   return function (...args) {
+    lastArgs = args;
+    lastThis = this;
     clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
+
+    return new Promise((resolveFn, rejectFn) => {
+      pending.push({ resolveFn, rejectFn });
+
+      timer = setTimeout(async () => {
+        const currentPending = pending;
+        pending = [];
+        try {
+          const result = await fn.apply(lastThis, lastArgs);
+          currentPending.forEach(({ resolveFn: resolve }) => resolve(result));
+        } catch (err) {
+          currentPending.forEach(({ rejectFn: reject }) => reject(err));
+        }
+      }, ms);
+    });
   };
 }
 

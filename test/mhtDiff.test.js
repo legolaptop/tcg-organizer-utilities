@@ -130,7 +130,7 @@ describe('applyShippingUpdates', () => {
     expect(newState).toEqual(state);  // same content
   });
 
-  test('returns updatedCount equal to number of updates applied', () => {
+  test('returns updatedCount equal to number of updates actually applied', () => {
     const orders = [
       makeOrder({ id: 'ORD-001' }),
       makeOrder({ id: 'ORD-002' }),
@@ -143,16 +143,15 @@ describe('applyShippingUpdates', () => {
     expect(updatedCount).toBe(2);
   });
 
-  test('updatedCount includes received orders (they are still in updates list)', () => {
-    // applyShippingUpdates returns updates.length regardless of how many were
-    // actually applied (received orders are skipped in mutation but still counted)
+  test('updatedCount does not include received orders (they are skipped)', () => {
+    // An order marked received is skipped — it should NOT be counted
     const orders = [makeOrder({ id: 'ORD-001' })];
     const state = { 'ORD-001': { received: true } };
     const updates = [
       { orderId: 'ORD-001', trackingNumber: 'TRACK', shippingConfirmed: true },
     ];
     const { updatedCount } = applyShippingUpdates(state, updates, orders);
-    expect(updatedCount).toBe(1);
+    expect(updatedCount).toBe(0);
   });
 
   test('preserves existing state keys not involved in updates', () => {

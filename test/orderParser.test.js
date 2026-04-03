@@ -170,9 +170,9 @@ describe('extractOrderMeta', () => {
     expect(meta.partialRefund).toBe(0.43);
   });
 
-  test('falls back to UNKNOWN id when no id found', () => {
-    const meta = extractOrderMeta('<div>no order data here</div>');
-    expect(meta.id).toMatch(/^UNKNOWN-/);
+  test('falls back to deterministic UNKNOWN-<index> id when no id found', () => {
+    const meta = extractOrderMeta('<div>no order data here</div>', 3);
+    expect(meta.id).toBe('UNKNOWN-3');
   });
 });
 

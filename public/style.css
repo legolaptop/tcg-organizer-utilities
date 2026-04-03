@@ -22,7 +22,7 @@ body {
 
 header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.1rem;
 }
 
 h1 {
@@ -231,7 +231,7 @@ footer a:hover {
   display: flex;
   justify-content: center;
   gap: 0.25rem;
-  margin-top: 1.25rem;
+  margin-top: 0.7rem;
 }
 
 .tab-btn {
@@ -258,14 +258,22 @@ footer a:hover {
 }
 
 /* ── Drive auth control ──────────────────────────────────────── */
-/* Compact, top-right of the tracker view */
+.tracker-upload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
 .drive-auth-control {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0;
 }
 
 .drive-auth-status {
@@ -378,6 +386,7 @@ footer a:hover {
 }
 
 .stat-item--received .stat-value { color: #38a169; }
+.stat-item--cost .stat-value { color: #2b4c8c; }
 .stat-item--overdue  .stat-value { color: #c53030; }
 .stat-item--unconfirmed .stat-value { color: #c05621; }
 
@@ -428,6 +437,21 @@ footer a:hover {
   color: #2b4c8c;
 }
 
+  .toggle-all-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    font-size: 0.75rem;
+    color: #718096;
+    cursor: pointer;
+    padding: 0.1rem 0.25rem;
+    border-radius: 3px;
+  }
+
+  .toggle-all-btn:hover {
+    color: #2b4c8c;
+  }
+
 /* ── Order cards ────────────────────────────────────────────── */
 .order-card {
   background: #fff;
@@ -473,7 +497,6 @@ footer a:hover {
   align-items: center;
   gap: 0.5rem;
   flex: 1;
-  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -535,6 +558,25 @@ footer a:hover {
   padding: 0.75rem 1rem;
 }
 
+.order-card__subheader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.order-card__submeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: #718096;
+}
+
 /* ── Status badges ──────────────────────────────────────────── */
 .status-badge {
   display: inline-block;
@@ -550,6 +592,15 @@ footer a:hover {
 .status-badge--overdue     { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; }
 .status-badge--unconfirmed { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
 .status-badge--tracked     { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+
+.status-badge--link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.status-badge--link:hover {
+  filter: brightness(0.97);
+}
 
 /* ── Partial refund banner ──────────────────────────────────── */
 .partial-refund-banner {

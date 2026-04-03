@@ -1111,17 +1111,18 @@
     } else if (status === 'unconfirmed') {
       badges.appendChild(makeBadge('Not Shipped', 'unconfirmed'));
     } else if (status === 'tracked') {
-      const b = makeBadge('Tracked', 'tracked');
-      badges.appendChild(b);
-      const tn = document.createElement('a');
-      tn.className = 'order-card__tracking';
-      tn.textContent = order.trackingNumber.number;
-      if (order.trackingNumber.url) {
-        tn.href = order.trackingNumber.url;
-        tn.target = '_blank';
-        tn.rel = 'noopener noreferrer';
+      if (order.trackingNumber && order.trackingNumber.url) {
+        const trackedLink = document.createElement('a');
+        trackedLink.className = 'status-badge status-badge--tracked status-badge--link';
+        trackedLink.textContent = 'Tracked';
+        trackedLink.href = order.trackingNumber.url;
+        trackedLink.target = '_blank';
+        trackedLink.rel = 'noopener noreferrer';
+        if (order.trackingNumber.number) trackedLink.title = order.trackingNumber.number;
+        badges.appendChild(trackedLink);
+      } else {
+        badges.appendChild(makeBadge('Tracked', 'tracked'));
       }
-      badges.appendChild(tn);
     }
 
     // Expand/collapse button
@@ -1150,23 +1151,6 @@
     idEl.className = 'order-card__id';
     idEl.textContent = `Order ${order.id}`;
     metaRow.appendChild(idEl);
-
-    if (order.trackingNumber && order.trackingNumber.number) {
-      const trackingWrap = document.createElement('span');
-      trackingWrap.className = 'order-card__submeta';
-      trackingWrap.appendChild(document.createTextNode('Tracking '));
-
-      const tn = document.createElement(order.trackingNumber.url ? 'a' : 'span');
-      tn.className = 'order-card__tracking';
-      tn.textContent = order.trackingNumber.number;
-      if (order.trackingNumber.url) {
-        tn.href = order.trackingNumber.url;
-        tn.target = '_blank';
-        tn.rel = 'noopener noreferrer';
-      }
-      trackingWrap.appendChild(tn);
-      metaRow.appendChild(trackingWrap);
-    }
 
     body.appendChild(metaRow);
 

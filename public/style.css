@@ -593,6 +593,15 @@ footer a:hover {
 .status-badge--unconfirmed { background: #fffaf0; color: #c05621; border: 1px solid #fbd38d; }
 .status-badge--tracked     { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
 
+.status-badge--link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.status-badge--link:hover {
+  filter: brightness(0.97);
+}
+
 /* ── Partial refund banner ──────────────────────────────────── */
 .partial-refund-banner {
   background: #fffaf0;

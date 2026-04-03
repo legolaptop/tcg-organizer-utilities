@@ -16,6 +16,7 @@
   const DRIVE_SPACE = 'appDataFolder';
   const DRIVE_AUTOCONNECT_KEY = 'tcg-tracker-drive-autoconnect';
   const AUTH_REQUEST_TIMEOUT_MS = 6000;
+  const AUTH_POPUP_PROBE_MS = 1200;
   const SAVE_DEBOUNCE_MS = 500;
 
   // ── Auth state ────────────────────────────────────────────────
@@ -28,6 +29,7 @@
   let tokenClient = null;   // google.accounts.oauth2.TokenClient
   let driveFileId = null;
   let authRequestTimer = null;
+  let authPopupProbeTimer = null;
   let authRequestMode = null; // 'silent' | 'interactive' | null
   let authErrorMessage = 'Connection failed — try again';
 
@@ -125,6 +127,7 @@
    */
   async function handleTokenResponse(response) {
     clearAuthRequestTimeout();
+    clearAuthPopupProbe();
 
     if (response.error) {
       console.error('OAuth error:', response.error);
@@ -194,6 +197,7 @@
     authErrorMessage = 'Connection failed — try again';
     setAuthStatus('connecting');
     startAuthRequestTimeout(mode);
+    startAuthPopupProbe(mode);
     tokenClient.requestAccessToken({ prompt: mode === 'silent' ? '' : 'consent' });
   }
 
@@ -202,6 +206,7 @@
    */
   function disconnectGoogleDrive() {
     clearAuthRequestTimeout();
+    clearAuthPopupProbe();
     authRequestMode = null;
     if (authState.accessToken) {
       google.accounts.oauth2.revoke(authState.accessToken, () => {
@@ -258,6 +263,31 @@
       clearTimeout(authRequestTimer);
       authRequestTimer = null;
     }
+  }
+
+  function clearAuthPopupProbe() {
+    if (authPopupProbeTimer) {
+      clearTimeout(authPopupProbeTimer);
+      authPopupProbeTimer = null;
+    }
+  }
+
+  function startAuthPopupProbe(mode) {
+    clearAuthPopupProbe();
+    if (mode !== 'interactive') return;
+
+    authPopupProbeTimer = setTimeout(() => {
+      authPopupProbeTimer = null;
+      if (authRequestMode !== 'interactive') return;
+
+      // If the page still has focus shortly after requesting auth, the popup was likely blocked.
+      if (document.visibilityState === 'visible' && document.hasFocus()) {
+        authErrorMessage = 'Google popup blocked — allow popups and try again';
+        clearAuthRequestTimeout();
+        authRequestMode = null;
+        setAuthStatus('error');
+      }
+    }, AUTH_POPUP_PROBE_MS);
   }
 
   function startAuthRequestTimeout(mode) {

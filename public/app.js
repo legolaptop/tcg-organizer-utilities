@@ -13,6 +13,8 @@
   const fileInput   = document.getElementById('file-input');
   const parseFilesBtn = document.getElementById('parse-files-btn');
 
+  const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB per file
+
   // ── Convert ─────────────────────────────────────────────────
   convertBtn.addEventListener('click', async () => {
     const text = rawInput.value.trim();
@@ -85,6 +87,26 @@
   });
 
   // ── Parse uploaded order-history files ───────────────────────
+
+  // Patterns used to detect TCGPlayer order-history content in uploaded files.
+  const TCG_CONTENT_PATTERNS = [
+    /orderHistoryItems/i,
+    /div-sellerorderwidget/i,
+    /class="orderWrap"/i,
+    /tcgplayer\.com\/product\/\d+/i,
+  ];
+
+  /**
+   * Returns true if the file text contains at least one marker that strongly
+   * suggests TCGPlayer order-history HTML.  Used to reject obviously wrong files
+   * before running the full parser.
+   *
+   * @param {string} text
+   * @returns {boolean}
+   */
+  function hasExpectedTcgPlayerContent(text) {
+    return TCG_CONTENT_PATTERNS.some(re => re.test(text));
+  }
 
   /**
    * Extract plain text from an HTML string by discarding all tag content.
@@ -309,12 +331,20 @@
       return;
     }
 
+    // Validate file sizes before reading.
+    const fileArr = Array.from(files);
+    const oversized = fileArr.find(f => f.size > MAX_FILE_BYTES);
+    if (oversized) {
+      showError(`"${oversized.name}" exceeds the 50 MB limit. Please upload a smaller file.`);
+      return;
+    }
+
     hideError();
     setLoading(true);
     parseFilesBtn.disabled = true;
 
     try {
-      const reads = Array.from(files).map(
+      const reads = fileArr.map(
         (f) =>
           new Promise((resolve) => {
             const r = new FileReader();
@@ -326,11 +356,21 @@
 
       const texts = await Promise.all(reads);
 
+      // Validate that at least one file contains recognizable TCGPlayer content.
+      const validTexts = texts.filter(t => hasExpectedTcgPlayerContent(t));
+      if (validTexts.length === 0) {
+        showError(
+          'No TCGPlayer order history could be found in the uploaded file(s). ' +
+          'Please upload an MHT or HTML save of your TCGPlayer order history page.'
+        );
+        return;
+      }
+
       const globalCounts = new Map();
       /** @type {Map<string, {quantity:number,condition:string|null,foil:boolean,unitPrice:number|null,rarity:string|null}>} */
       const itemDetailsById = new Map();
 
-      for (const t of texts) {
+      for (const t of validTexts) {
         const parsedItems = parseOrderTableHtml(t);
         if (parsedItems.length > 0) {
           // Use rich per-row data from order-history HTML.

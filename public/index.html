@@ -85,81 +85,79 @@
       <!-- ── Order Tracker ──────────────────────────────────── -->
       <div id="tracker-section" role="tabpanel" hidden>
 
-        <!-- Auth gate -->
-        <section class="card" id="tracker-auth">
-          <h2 class="section-label">Order Tracker</h2>
-          <p class="hint" style="margin-bottom:1rem;">
-            Sign in with Google to sync your order tracking state across devices.
-          </p>
-          <button id="tracker-sign-in-btn" class="btn btn-primary">Sign in with Google</button>
-          <div id="tracker-auth-error" class="error-msg" hidden></div>
+        <!-- Drive auth control — compact, top-right -->
+        <div id="drive-auth-control" class="drive-auth-control" data-status="disconnected">
+          <span id="drive-auth-status" class="drive-auth-status" hidden></span>
+          <button id="drive-connect-btn" class="btn btn-secondary btn-sm">Connect Google Drive</button>
+          <button id="drive-disconnect-btn" class="btn btn-secondary btn-sm drive-disconnect-btn" hidden>Disconnect</button>
+        </div>
+
+        <!-- Save indicator -->
+        <div id="save-indicator" class="save-indicator" aria-live="polite"></div>
+
+        <!-- MHT upload for tracker -->
+        <section class="card" id="tracker-upload-section">
+          <span class="section-label">Load Orders from MHT</span>
+          <p class="hint">Upload your TCGPlayer order-history MHT export to populate the tracker.</p>
+          <div class="file-upload">
+            <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
+            <button id="tracker-parse-btn" class="btn btn-secondary">Load orders</button>
+          </div>
+          <div id="tracker-upload-msg" class="hint" style="margin-top:0.5rem;" hidden></div>
         </section>
 
-        <!-- Tracker content (shown after auth) -->
-        <div id="tracker-content" hidden>
+        <!-- Filter tabs -->
+        <div class="filter-tabs" role="tablist" aria-label="Filter orders">
+          <button class="filter-tab filter-tab--active" data-filter="all" role="tab" aria-selected="true">All</button>
+          <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
+          <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
+          <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
+        </div>
 
-          <!-- Save indicator -->
-          <div id="save-indicator" class="save-indicator" aria-live="polite"></div>
-
-          <!-- MHT upload for tracker -->
-          <section class="card" id="tracker-upload-section">
-            <span class="section-label">Load Orders from MHT</span>
-            <p class="hint">Upload your TCGPlayer order-history MHT export to populate the tracker.</p>
-            <div class="file-upload">
-              <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
-              <button id="tracker-parse-btn" class="btn btn-secondary">Load orders</button>
-            </div>
-            <div id="tracker-upload-msg" class="hint" style="margin-top:0.5rem;" hidden></div>
-          </section>
-
-          <!-- Filter tabs -->
-          <div class="filter-tabs" role="tablist" aria-label="Filter orders">
-            <button class="filter-tab filter-tab--active" data-filter="all" role="tab" aria-selected="true">All</button>
-            <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
-            <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
-            <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
+        <!-- Summary stats bar -->
+        <div class="tracker-stats" id="tracker-stats">
+          <div class="stat-item">
+            <span class="stat-value" id="stat-total">0</span>
+            <span class="stat-label">Total</span>
           </div>
+          <div class="stat-item stat-item--received">
+            <span class="stat-value" id="stat-received">0</span>
+            <span class="stat-label">Received</span>
+          </div>
+          <div class="stat-item stat-item--overdue">
+            <span class="stat-value" id="stat-overdue">0</span>
+            <span class="stat-label">Overdue</span>
+          </div>
+          <div class="stat-item stat-item--unconfirmed">
+            <span class="stat-value" id="stat-unconfirmed">0</span>
+            <span class="stat-label">Unconfirmed</span>
+          </div>
+        </div>
 
-          <!-- Summary stats bar -->
-          <div class="tracker-stats" id="tracker-stats">
-            <div class="stat-item">
-              <span class="stat-value" id="stat-total">0</span>
-              <span class="stat-label">Total</span>
-            </div>
-            <div class="stat-item stat-item--received">
-              <span class="stat-value" id="stat-received">0</span>
-              <span class="stat-label">Received</span>
-            </div>
-            <div class="stat-item stat-item--overdue">
-              <span class="stat-value" id="stat-overdue">0</span>
-              <span class="stat-label">Overdue</span>
-            </div>
-            <div class="stat-item stat-item--unconfirmed">
-              <span class="stat-value" id="stat-unconfirmed">0</span>
-              <span class="stat-label">Unconfirmed</span>
+        <!-- Orders list -->
+        <div id="orders-list"></div>
+
+        <!-- "Connect to sync" note — shown when not authenticated -->
+        <p id="drive-connect-note" class="hint drive-connect-note">
+          Connect Google Drive to sync progress across devices.
+        </p>
+
+        <!-- Empty state -->
+        <div id="no-orders" class="card no-orders-msg" hidden>
+          <p>No orders match this filter. Upload an MHT file to get started.</p>
+        </div>
+
+        <!-- Export received cards -->
+        <div id="tracker-export-section" class="card" style="margin-top:1rem;" hidden>
+          <div class="section-header">
+            <span class="section-label">Export Received Cards</span>
+            <div class="output-actions">
+              <button id="tracker-export-btn" class="btn btn-primary btn-sm">Download CSV</button>
             </div>
           </div>
+          <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) for Moxfield.</p>
+        </div>
 
-          <!-- Orders list -->
-          <div id="orders-list"></div>
-
-          <!-- Empty state -->
-          <div id="no-orders" class="card no-orders-msg" hidden>
-            <p>No orders match this filter. Upload an MHT file to get started.</p>
-          </div>
-
-          <!-- Export received cards -->
-          <div id="tracker-export-section" class="card" style="margin-top:1rem;" hidden>
-            <div class="section-header">
-              <span class="section-label">Export Received Cards</span>
-              <div class="output-actions">
-                <button id="tracker-export-btn" class="btn btn-primary btn-sm">Download CSV</button>
-              </div>
-            </div>
-            <p class="hint">Downloads a CSV of all received cards (excluding canceled / missing) for Moxfield.</p>
-          </div>
-
-        </div><!-- /tracker-content -->
       </div><!-- /tracker-section -->
     </main>
 

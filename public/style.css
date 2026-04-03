@@ -257,6 +257,41 @@ footer a:hover {
   background: #fff;
 }
 
+/* ── Drive auth control ──────────────────────────────────────── */
+/* Compact, top-right of the tracker view */
+.drive-auth-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.drive-auth-status {
+  font-size: 0.82rem;
+  color: #4a5568;
+}
+
+.drive-auth-status--connected {
+  color: #38a169;
+}
+
+.drive-auth-status--error {
+  color: #c53030;
+}
+
+.drive-disconnect-btn {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.drive-connect-note {
+  text-align: center;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
 /* ── Save indicator ─────────────────────────────────────────── */
 .save-indicator {
   min-height: 1.2rem;

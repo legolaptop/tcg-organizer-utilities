@@ -8,17 +8,34 @@
 (function () {
 
   // ── Configuration ────────────────────────────────────────────
-  // Replace with your Google OAuth 2.0 client ID from the Google Cloud Console.
-  // Required scope: https://www.googleapis.com/auth/drive.appdata
-  const GOOGLE_CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID';
+  // Client ID from Google Cloud Console (Web Application OAuth 2.0 credential).
+  // See src/config.ts. Verify this is the correct Client ID format
+  // (should end in .apps.googleusercontent.com — no server-side client secret needed).
+  const GOOGLE_CLIENT_ID = 'client_secret_1072507978414-bifrk9rra5knrkf6rfpbjahb9174gd1t.apps.googleusercontent.com';
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
   const DRIVE_FILE_NAME = 'tcg-tracker-state.json';
   const DRIVE_SPACE = 'appDataFolder';
   const SAVE_DEBOUNCE_MS = 500;
 
-  // ── App state ─────────────────────────────────────────────────
-  let accessToken = null;
+  // ── Auth state ────────────────────────────────────────────────
+  // Tokens are held in memory only — never stored in localStorage or cookies.
+  let authState = {
+    accessToken: null,   // string | null
+    expiresAt: null,     // Unix timestamp ms | null
+  };
+
+  let tokenClient = null;   // google.accounts.oauth2.TokenClient
   let driveFileId = null;
+
+  function isAuthenticated() {
+    return (
+      authState.accessToken !== null &&
+      authState.expiresAt !== null &&
+      Date.now() < authState.expiresAt
+    );
+  }
+
+  // ── App state ─────────────────────────────────────────────────
   let trackerState = {};   // TrackerState: Record<orderId, OrderState>
   let orders = [];         // Order[]
   let activeFilter = 'all';
@@ -30,11 +47,13 @@
   const converterSection = document.getElementById('converter-section');
   const trackerSection = document.getElementById('tracker-section');
 
-  const trackerAuth = document.getElementById('tracker-auth');
-  const signInBtn = document.getElementById('tracker-sign-in-btn');
-  const authError = document.getElementById('tracker-auth-error');
+  // Drive auth control (compact, top-right of tracker view)
+  const driveAuthControl = document.getElementById('drive-auth-control');
+  const driveConnectBtn = document.getElementById('drive-connect-btn');
+  const driveDisconnectBtn = document.getElementById('drive-disconnect-btn');
+  const driveAuthStatus = document.getElementById('drive-auth-status');
+  const driveConnectNote = document.getElementById('drive-connect-note');
 
-  const trackerContent = document.getElementById('tracker-content');
   const saveIndicator = document.getElementById('save-indicator');
   const trackerFileInput = document.getElementById('tracker-file-input');
   const trackerParseBtn = document.getElementById('tracker-parse-btn');
@@ -73,56 +92,179 @@
     }
   }
 
-  // ── Google OAuth ──────────────────────────────────────────────
+  // ── Google Identity Services ──────────────────────────────────
 
-  signInBtn.addEventListener('click', () => {
-    if (!window.google) {
-      showAuthError('Google Identity Services library not loaded. Check your network connection.');
-      return;
-    }
-    const client = google.accounts.oauth2.initTokenClient({
+  /**
+   * Initialize the GIS token client on page load.
+   * Does NOT prompt the user — just configures the client.
+   * Called from window.onload (see bottom of file).
+   */
+  function initGoogleAuth() {
+    if (!window.google) return;
+    tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: DRIVE_SCOPE,
-      callback: async (response) => {
-        if (response.error) {
-          showAuthError('Sign-in failed: ' + response.error);
-          return;
-        }
-        accessToken = response.access_token;
-        await onSignedIn();
-      },
+      callback: handleTokenResponse,
     });
-    client.requestAccessToken();
-  });
-
-  function showAuthError(msg) {
-    authError.textContent = msg;
-    authError.hidden = false;
   }
 
-  async function onSignedIn() {
-    authError.hidden = true;
-    signInBtn.textContent = 'Signed in ✓';
-    signInBtn.disabled = true;
-    trackerAuth.hidden = false;
-
-    try {
-      trackerState = await loadStateFromDrive();
-    } catch (e) {
-      console.error('Failed to load state from Drive:', e);
-      trackerState = {};
+  /**
+   * Handles the token response from GIS after requestAccessToken().
+   * Updates authState and triggers Drive state load on success.
+   *
+   * @param {google.accounts.oauth2.TokenResponse} response
+   */
+  async function handleTokenResponse(response) {
+    if (response.error) {
+      console.error('OAuth error:', response.error);
+      setAuthStatus('error');
+      return;
     }
 
-    trackerContent.hidden = false;
+    authState = {
+      accessToken: response.access_token,
+      expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
+    };
+
+    setAuthStatus('connected');
+
+    // Load Drive state now that we have a valid token
+    try {
+      const driveState = await loadStateFromDrive();
+      // Merge Drive state over any in-memory state (Drive wins for existing keys)
+      trackerState = Object.assign({}, trackerState, driveState);
+    } catch (e) {
+      console.error('Failed to load state from Drive:', e);
+    }
     renderTracker();
   }
+
+  /**
+   * Connect to Google Drive. Shows the OAuth consent popup if needed.
+   * If already authenticated, loads Drive state immediately.
+   */
+  async function connectGoogleDrive() {
+    if (!window.google || !tokenClient) {
+      setAuthStatus('error');
+      return;
+    }
+
+    if (isAuthenticated()) {
+      setAuthStatus('connected');
+      try {
+        const driveState = await loadStateFromDrive();
+        trackerState = Object.assign({}, trackerState, driveState);
+      } catch (e) {
+        console.error('Failed to load state from Drive:', e);
+      }
+      renderTracker();
+      return;
+    }
+
+    setAuthStatus('connecting');
+    // prompt: '' requests a new token silently if consent was previously granted,
+    // or shows the consent popup if it is the first time.
+    tokenClient.requestAccessToken({ prompt: '' });
+  }
+
+  /**
+   * Disconnect from Google Drive. Revokes the token and clears auth state.
+   */
+  function disconnectGoogleDrive() {
+    if (authState.accessToken) {
+      google.accounts.oauth2.revoke(authState.accessToken, () => {
+        console.log('Token revoked');
+      });
+    }
+    authState = { accessToken: null, expiresAt: null };
+    driveFileId = null;
+    setAuthStatus('disconnected');
+  }
+
+  /**
+   * Returns a valid access token, requesting a silent refresh if expired.
+   * Throws if the user has never connected or the refresh fails.
+   *
+   * @returns {Promise<string>}
+   */
+  function getValidAccessToken() {
+    if (isAuthenticated()) {
+      return Promise.resolve(authState.accessToken);
+    }
+
+    if (!tokenClient) {
+      return Promise.reject(new Error('Google auth not initialized'));
+    }
+
+    // Token expired — request a new one silently
+    return new Promise((resolve, reject) => {
+      const originalCallback = tokenClient.callback;
+      tokenClient.callback = (response) => {
+        tokenClient.callback = originalCallback;
+        if (response.error) {
+          reject(new Error(response.error));
+          return;
+        }
+        authState.accessToken = response.access_token;
+        authState.expiresAt = Date.now() + (response.expires_in ?? 3600) * 1000;
+        resolve(authState.accessToken);
+      };
+      tokenClient.requestAccessToken({ prompt: '' });
+    });
+  }
+
+  /**
+   * Update the Drive auth control UI to reflect the current status.
+   *
+   * @param {'disconnected'|'connecting'|'connected'|'error'} status
+   */
+  function setAuthStatus(status) {
+    driveAuthControl.dataset.status = status;
+
+    if (status === 'disconnected') {
+      driveConnectBtn.hidden = false;
+      driveConnectBtn.disabled = false;
+      driveConnectBtn.textContent = 'Connect Google Drive';
+      driveDisconnectBtn.hidden = true;
+      driveAuthStatus.hidden = true;
+      driveConnectNote.hidden = false;
+    } else if (status === 'connecting') {
+      driveConnectBtn.hidden = false;
+      driveConnectBtn.disabled = true;
+      driveConnectBtn.textContent = 'Connecting…';
+      driveDisconnectBtn.hidden = true;
+      driveAuthStatus.hidden = true;
+      driveConnectNote.hidden = true;
+    } else if (status === 'connected') {
+      driveConnectBtn.hidden = true;
+      driveDisconnectBtn.hidden = false;
+      driveAuthStatus.textContent = 'Google Drive connected ✓';
+      driveAuthStatus.className = 'drive-auth-status drive-auth-status--connected';
+      driveAuthStatus.hidden = false;
+      driveConnectNote.hidden = true;
+    } else if (status === 'error') {
+      driveConnectBtn.hidden = false;
+      driveConnectBtn.disabled = false;
+      driveConnectBtn.textContent = 'Connect Google Drive';
+      driveDisconnectBtn.hidden = true;
+      driveAuthStatus.textContent = 'Connection failed — try again';
+      driveAuthStatus.className = 'drive-auth-status drive-auth-status--error';
+      driveAuthStatus.hidden = false;
+      driveConnectNote.hidden = false;
+    }
+  }
+
+  // Wire up Connect / Disconnect buttons
+  driveConnectBtn.addEventListener('click', () => connectGoogleDrive());
+  driveDisconnectBtn.addEventListener('click', () => disconnectGoogleDrive());
 
   // ── Drive persistence ─────────────────────────────────────────
 
   async function loadStateFromDrive() {
+    const token = await getValidAccessToken();
     const searchRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_SPACE}&q=name%3D'${DRIVE_FILE_NAME}'&fields=files(id)`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8000) }
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
     );
     if (!searchRes.ok) throw new Error(`Drive search failed: ${searchRes.status}`);
 
@@ -133,24 +275,25 @@
 
     const contentRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
-      { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(8000) }
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
     );
     if (!contentRes.ok) throw new Error(`Drive read failed: ${contentRes.status}`);
     return await contentRes.json();
   }
 
   async function saveStateToDrive() {
-    if (!accessToken) return;
+    if (!isAuthenticated()) return;
     const body = JSON.stringify(trackerState);
 
     try {
+      const token = await getValidAccessToken();
       if (driveFileId) {
         const res = await fetch(
           `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
           {
             method: 'PATCH',
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
             body,
@@ -168,7 +311,7 @@
           'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
           {
             method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}` },
+            headers: { Authorization: `Bearer ${token}` },
             body: form,
             signal: AbortSignal.timeout(8000),
           }
@@ -185,6 +328,7 @@
   }
 
   function debouncedSave() {
+    if (!isAuthenticated()) return;
     setSaveStatus('saving');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveStateToDrive(), SAVE_DEBOUNCE_MS);
@@ -884,6 +1028,22 @@
     const str = String(value);
     if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
     return str;
+  }
+
+  // ── Initialization ─────────────────────────────────────────────
+  // Initialize the GIS token client and set the auth UI to 'disconnected'.
+  // We do NOT auto-prompt — the user clicks "Connect Google Drive" to start.
+
+  function onPageReady() {
+    initGoogleAuth();
+    setAuthStatus('disconnected');
+    renderTracker();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', onPageReady);
+  } else {
+    onPageReady();
   }
 
 })();

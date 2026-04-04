@@ -498,10 +498,9 @@
       // Drive is newer (or both lack timestamps) — merge Drive state in.
       orders = mergeOrders(drivePayload.orders, orders);
       trackerState = Object.assign({}, trackerState, drivePayload.trackerState);
-      // Persist the merged state to local and track the Drive timestamp.
-      const merged = buildStatePayload();
-      if (drivePayload.updatedAt) merged.updatedAt = drivePayload.updatedAt;
-      await saveStateToLocal(merged);
+      // Persist the merged state with a fresh timestamp that reflects when
+      // this merge happened, so future reconciliations treat local as current.
+      await saveStateToLocal(buildStatePayload());
     }
   }
 

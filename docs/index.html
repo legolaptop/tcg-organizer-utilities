@@ -195,7 +195,15 @@
     </footer>
   </div>
 
+  <script src="localStore.js"></script>
   <script src="app.js"></script>
   <script src="tracker.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+        console.warn('Service Worker registration failed:', e);
+      });
+    }
+  </script>
 </body>
 </html>

@@ -68,6 +68,7 @@
   const SCRYFALL_BASE_BACKOFF_MS = 1000;
   let activeFilter = 'all';
   let saveTimer = null;
+  let localUpdatedAt = null; // ISO timestamp of the last local IndexedDB save
 
   // ── DOM references ────────────────────────────────────────────
   const navConverter = document.getElementById('nav-converter');
@@ -216,7 +217,7 @@
 
     // Load Drive state now that we have a valid token
     try {
-      applyDrivePayload(await loadStateFromDrive());
+      await reconcileWithDrive(await loadStateFromDrive());
       refreshScryfallLinksFromLoadedOrders();
     } catch (e) {
       console.error('Failed to load state from Drive:', e);
@@ -248,7 +249,7 @@
       setAuthStatus('connected');
       setDriveAutoconnectEnabled(true);
       try {
-        applyDrivePayload(await loadStateFromDrive());
+        await reconcileWithDrive(await loadStateFromDrive());
         refreshScryfallLinksFromLoadedOrders();
       } catch (e) {
         console.error('Failed to load state from Drive:', e);
@@ -434,14 +435,78 @@
     return normalizeDrivePayload(await contentRes.json());
   }
 
-  async function saveStateToDrive() {
-    if (!isAuthenticated()) return;
-    const normalizedOrders = normalizeOrderArray(orders);
-    const body = JSON.stringify({
+  // ── Local-first persistence helpers ──────────────────────────
+
+  /**
+   * Build the canonical state payload that is stored both locally and in Drive.
+   * @returns {{ version: number, orders: Array, trackerState: Object, updatedAt: string }}
+   */
+  function buildStatePayload() {
+    return {
       version: 2,
-      orders: normalizedOrders,
+      orders: normalizeOrderArray(orders),
       trackerState,
-    });
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Persist the payload to IndexedDB.  Never throws — errors are logged.
+   * @param {Object} payload
+   * @returns {Promise<void>}
+   */
+  async function saveStateToLocal(payload) {
+    if (!window.localStore) return;
+    try {
+      await window.localStore.save(payload);
+      localUpdatedAt = payload.updatedAt || null;
+    } catch (e) {
+      console.error('Local save failed:', e);
+    }
+  }
+
+  /**
+   * Save current state to both IndexedDB and (when authenticated) Google Drive.
+   * @returns {Promise<void>}
+   */
+  async function saveAll() {
+    const payload = buildStatePayload();
+    await saveStateToLocal(payload);
+    if (isAuthenticated()) {
+      await saveStateToDrive(payload);
+    } else {
+      setSaveStatus('saved');
+    }
+  }
+
+  /**
+   * Compare Drive payload with local state via updatedAt and reconcile:
+   *  - Drive newer (or no timestamps): merge Drive state in, update local copy.
+   *  - Local newer: push local state to Drive, keep in-memory state unchanged.
+   * @param {Object} rawDrivePayload  Raw JSON from Drive (may be empty {})
+   * @returns {Promise<void>}
+   */
+  async function reconcileWithDrive(rawDrivePayload) {
+    const drivePayload = normalizeDrivePayload(rawDrivePayload);
+    const driveTs = drivePayload.updatedAt ? new Date(drivePayload.updatedAt).getTime() : 0;
+    const localTs = localUpdatedAt ? new Date(localUpdatedAt).getTime() : 0;
+
+    if (localTs > driveTs) {
+      // Local is newer — push local state to Drive without overwriting local.
+      await saveStateToDrive(buildStatePayload());
+    } else {
+      // Drive is newer (or both lack timestamps) — merge Drive state in.
+      orders = mergeOrders(drivePayload.orders, orders);
+      trackerState = Object.assign({}, trackerState, drivePayload.trackerState);
+      // Persist the merged state with a fresh timestamp that reflects when
+      // this merge happened, so future reconciliations treat local as current.
+      await saveStateToLocal(buildStatePayload());
+    }
+  }
+
+  async function saveStateToDrive(payload) {
+    if (!isAuthenticated()) return;
+    const body = JSON.stringify(payload || buildStatePayload());
 
     try {
       const token = await getValidAccessToken();
@@ -486,25 +551,25 @@
   }
 
   function debouncedSave() {
-    if (!isAuthenticated()) return;
     setSaveStatus('saving');
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveStateToDrive(), SAVE_DEBOUNCE_MS);
+    saveTimer = setTimeout(() => saveAll(), SAVE_DEBOUNCE_MS);
   }
 
   function normalizeDrivePayload(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      return { orders: [], trackerState: {} };
+      return { orders: [], trackerState: {}, updatedAt: null };
     }
 
     // Backward compatibility: old payloads stored trackerState directly.
     if (!Object.prototype.hasOwnProperty.call(payload, 'orders') && !Object.prototype.hasOwnProperty.call(payload, 'trackerState')) {
-      return { orders: [], trackerState: payload };
+      return { orders: [], trackerState: payload, updatedAt: null };
     }
 
     return {
       orders: normalizeOrderArray(Array.isArray(payload.orders) ? payload.orders : []),
       trackerState: payload.trackerState && typeof payload.trackerState === 'object' ? payload.trackerState : {},
+      updatedAt: typeof payload.updatedAt === 'string' ? payload.updatedAt : null,
     };
   }
 
@@ -534,7 +599,7 @@
     hydrateScryfallForOrderCards(orders)
       .then((resolvedCount) => {
         if (resolvedCount > 0) {
-          if (isAuthenticated()) debouncedSave();
+          debouncedSave();
           renderTracker();
         }
       })
@@ -834,7 +899,7 @@
         hydrateScryfallForOrderCards(visibleFresh)
           .then((resolvedCount) => {
             if (resolvedCount > 0) {
-              if (isAuthenticated()) debouncedSave();
+              debouncedSave();
               renderTracker();
             }
           })
@@ -2187,12 +2252,29 @@
   // Initialize the GIS token client and set the auth UI to 'disconnected'.
   // We do NOT auto-prompt — the user clicks "Connect Google Drive" to start.
 
-  function onPageReady() {
+  async function onPageReady() {
     initGoogleAuth();
     setAuthStatus('disconnected');
     const tabParam = new URLSearchParams(window.location.search).get('t');
     const initialTab = tabParam === 'converter' ? 'converter' : 'tracker';
     showTab(initialTab);
+
+    // Restore state from IndexedDB before first render so that tracker is
+    // populated immediately, even when Google Drive is not connected.
+    if (window.localStore) {
+      try {
+        const local = await window.localStore.load();
+        if (local) {
+          const normalized = normalizeDrivePayload(local);
+          orders = mergeOrders(normalized.orders, orders);
+          trackerState = Object.assign({}, trackerState, normalized.trackerState);
+          localUpdatedAt = normalized.updatedAt || null;
+        }
+      } catch (e) {
+        console.error('Failed to load local state:', e);
+      }
+    }
+
     renderTracker();
     if (getDriveAutoconnectEnabled()) {
       connectGoogleDrive('silent').catch((e) => {
@@ -2202,9 +2284,9 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', onPageReady);
+    document.addEventListener('DOMContentLoaded', () => onPageReady().catch(e => console.error('onPageReady failed:', e)));
   } else {
-    onPageReady();
+    onPageReady().catch(e => console.error('onPageReady failed:', e));
   }
 
 })();

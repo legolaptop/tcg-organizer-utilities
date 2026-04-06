@@ -2036,7 +2036,7 @@
       if (!scry) return card;
       return {
         ...card,
-        name: card.name || scry.name,
+        name: scry.name || card.name,
         setName: scry.setName || card.set || '',
         setCode: scry.setCode || '',
         collectorNumber: scry.collectorNumber || '',

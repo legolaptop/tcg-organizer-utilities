@@ -1437,7 +1437,7 @@
       case 'overdue':
         return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today) && !(state[o.id] && state[o.id].exported));
       case 'received':
-        return active.filter(o => state[o.id] && state[o.id].received);
+        return active.filter(o => state[o.id] && state[o.id].received && !state[o.id].exported);
       case 'archived':
       case 'exported':
         return active.filter(o => state[o.id] && state[o.id].exported);

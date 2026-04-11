@@ -1706,7 +1706,12 @@
 
     const idEl = document.createElement('span');
     idEl.className = 'order-card__id';
-    idEl.textContent = `Order ${order.id}`;
+    const idLink = document.createElement('a');
+    idLink.href = `https://store.tcgplayer.com/myaccount/orderhistory?SearchString=${encodeURIComponent(order.id)}`;
+    idLink.target = '_blank';
+    idLink.rel = 'noopener noreferrer';
+    idLink.textContent = `Order ${order.id}`;
+    idEl.appendChild(idLink);
     metaRow.appendChild(idEl);
 
     // Single-order export action (distinct from the global export panel)

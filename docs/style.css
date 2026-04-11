@@ -497,6 +497,50 @@ footer a:hover {
   border-color: #2b4c8c;
 }
 
+/* ── Search bar ─────────────────────────────────────────────── */
+.tracker-search-row {
+  margin-bottom: 1rem;
+}
+
+.tracker-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tracker-search-input {
+  width: 100%;
+  padding: 0.45rem 2.2rem 0.45rem 0.75rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 0.88rem;
+  color: #2d3748;
+  background: #fff;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.tracker-search-input:focus {
+  outline: none;
+  border-color: #2b4c8c;
+}
+
+.tracker-search-clear {
+  position: absolute;
+  right: 0.55rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: #718096;
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+
+.tracker-search-clear:hover {
+  color: #2d3748;
+}
+
 /* ── Summary stats bar ─────────────────────────────────────── */
 .tracker-stats {
   display: flex;

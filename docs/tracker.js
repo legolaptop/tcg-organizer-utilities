@@ -66,7 +66,9 @@
   const SCRYFALL_CONCURRENCY = 2;
   const SCRYFALL_MAX_RETRIES = 2;
   const SCRYFALL_BASE_BACKOFF_MS = 1000;
-  let activeFilter = 'all';
+  let activeFilter = 'incoming';
+  let searchQuery = '';
+  let searchTimer = null;
   let saveTimer = null;
   let localUpdatedAt = null; // ISO timestamp of the last local IndexedDB save
 
@@ -102,6 +104,8 @@
   const exportBtn = document.getElementById('tracker-export-btn');
   const exportIncludeExported = document.getElementById('tracker-export-include-exported');
   const toggleAllBtn = document.getElementById('toggle-all-btn');
+  const trackerSearchInput = document.getElementById('tracker-search');
+  const trackerSearchClear = document.getElementById('tracker-search-clear');
   const defaultTrackerParseBtnText = trackerParseBtn.textContent;
   let exportDockOpen = false;
 
@@ -1442,7 +1446,8 @@
       case 'exported':
         return active.filter(o => state[o.id] && state[o.id].exported);
       default:
-        return active.filter(o => !(state[o.id] && state[o.id].exported));
+        // 'all' — include all non-canceled orders (incoming, received, overdue, and archived)
+        return active;
     }
   }
 
@@ -1526,20 +1531,46 @@
 
   // ── Rendering ─────────────────────────────────────────────────
 
+  function setActiveFilter(filterName) {
+    activeFilter = filterName;
+    filterTabs.forEach(t => {
+      const isActive = t.dataset.filter === filterName;
+      t.classList.toggle('filter-tab--active', isActive);
+      t.setAttribute('aria-selected', String(isActive));
+    });
+  }
+
+  function matchesSearch(order, q) {
+    if (!q) return true;
+    if ((order.id || '').toLowerCase().includes(q)) return true;
+    if ((order.seller || '').toLowerCase().includes(q)) return true;
+    if (order.cards && order.cards.some(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.cardSeller || '').toLowerCase().includes(q)
+    )) return true;
+    return false;
+  }
+
   function renderTracker() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Update stats
-    const stats = getStats(orders, trackerState, today);
+    // Get filtered orders (tab filter + search)
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = getFilteredOrders(orders, trackerState, activeFilter, today)
+      .filter(o => matchesSearch(o, q));
+
+    // Update stats to reflect the filtered result set
+    const stats = getStats(filtered, trackerState, today);
     statTotal.textContent = stats.total;
     statTotalCost.textContent = `$${stats.totalCost.toFixed(2)}`;
     statReceived.textContent = stats.received;
     statOverdue.textContent = stats.overdue;
     statUnconfirmed.textContent = stats.unconfirmed;
 
-    // Show/hide export controls
-    const hasExportableOrders = stats.received > 0;
+    // Show/hide export controls based on globally received orders (not just visible)
+    const globalStats = getStats(orders, trackerState, today);
+    const hasExportableOrders = globalStats.received > 0;
     exportSection.hidden = !hasExportableOrders;
     if (exportFab) {
       exportFab.hidden = !hasExportableOrders;
@@ -1555,8 +1586,6 @@
       exportSection.classList.remove('is-open');
     }
 
-    // Get filtered orders
-    const filtered = getFilteredOrders(orders, trackerState, activeFilter, today);
     const groups = groupOrdersByDate(filtered);
 
     ordersList.innerHTML = '';
@@ -1959,16 +1988,37 @@
 
   filterTabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      filterTabs.forEach(t => {
-        t.classList.remove('filter-tab--active');
-        t.setAttribute('aria-selected', 'false');
-      });
-      tab.classList.add('filter-tab--active');
-      tab.setAttribute('aria-selected', 'true');
-      activeFilter = tab.dataset.filter;
+      setActiveFilter(tab.dataset.filter);
       renderTracker();
     });
   });
+
+  // ── Search bar ────────────────────────────────────────────────
+
+  if (trackerSearchInput) {
+    trackerSearchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        const q = trackerSearchInput.value.trim();
+        searchQuery = q;
+        if (trackerSearchClear) trackerSearchClear.hidden = q.length === 0;
+        if (q.length > 0 && activeFilter !== 'all') {
+          setActiveFilter('all');
+        }
+        renderTracker();
+      }, 250);
+    });
+  }
+
+  if (trackerSearchClear) {
+    trackerSearchClear.addEventListener('click', () => {
+      if (trackerSearchInput) trackerSearchInput.value = '';
+      searchQuery = '';
+      trackerSearchClear.hidden = true;
+      // Stay on 'all' when clearing (per product decision)
+      renderTracker();
+    });
+  }
 
   toggleAllBtn.addEventListener('click', () => {
       const cards = ordersList.querySelectorAll('.order-card');

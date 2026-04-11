@@ -1555,16 +1555,22 @@
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Update stats
-    const stats = getStats(orders, trackerState, today);
+    // Get filtered orders (tab filter + search)
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = getFilteredOrders(orders, trackerState, activeFilter, today)
+      .filter(o => matchesSearch(o, q));
+
+    // Update stats to reflect the filtered result set
+    const stats = getStats(filtered, trackerState, today);
     statTotal.textContent = stats.total;
     statTotalCost.textContent = `$${stats.totalCost.toFixed(2)}`;
     statReceived.textContent = stats.received;
     statOverdue.textContent = stats.overdue;
     statUnconfirmed.textContent = stats.unconfirmed;
 
-    // Show/hide export controls
-    const hasExportableOrders = stats.received > 0;
+    // Show/hide export controls based on globally received orders (not just visible)
+    const globalStats = getStats(orders, trackerState, today);
+    const hasExportableOrders = globalStats.received > 0;
     exportSection.hidden = !hasExportableOrders;
     if (exportFab) {
       exportFab.hidden = !hasExportableOrders;
@@ -1580,10 +1586,6 @@
       exportSection.classList.remove('is-open');
     }
 
-    // Get filtered orders
-    const q = searchQuery.trim().toLowerCase();
-    const filtered = getFilteredOrders(orders, trackerState, activeFilter, today)
-      .filter(o => matchesSearch(o, q));
     const groups = groupOrdersByDate(filtered);
 
     ordersList.innerHTML = '';

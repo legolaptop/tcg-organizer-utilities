@@ -115,12 +115,20 @@
 
         <!-- Filter tabs -->
         <div class="filter-tabs" role="tablist" aria-label="Filter orders" id="filter-tabs-row">
-          <button class="filter-tab filter-tab--active" data-filter="all" role="tab" aria-selected="true">All</button>
-          <button class="filter-tab" data-filter="incoming" role="tab" aria-selected="false">Incoming</button>
+          <button class="filter-tab" data-filter="all" role="tab" aria-selected="false">All</button>
+          <button class="filter-tab filter-tab--active" data-filter="incoming" role="tab" aria-selected="true">Incoming</button>
           <button class="filter-tab" data-filter="overdue" role="tab" aria-selected="false">Overdue</button>
           <button class="filter-tab" data-filter="received" role="tab" aria-selected="false">Received</button>
           <button class="filter-tab" data-filter="archived" role="tab" aria-selected="false">Archived</button>
           <button id="toggle-all-btn" class="toggle-all-btn">Collapse all</button>
+        </div>
+
+        <!-- Search bar -->
+        <div class="tracker-search-row">
+          <div class="tracker-search-wrap">
+            <input id="tracker-search" type="search" class="tracker-search-input" placeholder="Search order #, seller/shipper, or card…" autocomplete="off" />
+            <button id="tracker-search-clear" class="tracker-search-clear" aria-label="Clear search" hidden>×</button>
+          </div>
         </div>
 
         <!-- Summary stats bar -->

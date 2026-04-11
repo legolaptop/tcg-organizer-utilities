@@ -656,6 +656,15 @@ footer a:hover {
   text-overflow: ellipsis;
 }
 
+.order-card__id a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.order-card__id a:hover {
+  text-decoration: underline;
+}
+
 .order-card__seller {
   font-size: 0.85rem;
   font-weight: 600;

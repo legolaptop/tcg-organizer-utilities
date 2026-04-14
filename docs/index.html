@@ -16,74 +16,11 @@
         Upload TCGPlayer order-history files, track delivery and receive status,
         flag missing or refunded cards, and export only your received cards to CSV.
       </p>
-      <!-- Tab navigation -->
-      <nav class="tab-nav" role="tablist">
-        <button class="tab-btn tab-btn--active" id="nav-tracker" role="tab" aria-selected="true" aria-controls="tracker-section">Order Tracker</button>
-        <button class="tab-btn" id="nav-converter" role="tab" aria-selected="false" aria-controls="converter-section">CSV Converter</button>
-      </nav>
     </header>
 
     <main>
-      <!-- ── CSV Converter ──────────────────────────────────── -->
-      <div id="converter-section" role="tabpanel" hidden>
-
-      <!-- Input section -->
-      <section class="card" id="input-section">
-        <label for="raw-input" class="section-label">Paste your order text</label>
-        <p class="hint">
-          Supported formats (one card per line, or two-line blocks):
-        </p>
-        <ul class="hint-list">
-          <li><code>1x Black Lotus [Limited Edition Alpha] Near Mint</code></li>
-          <li><code>1x Llanowar Elves - Dominaria - Near Mint Foil</code></li>
-          <li><code>Black Lotus [Limited Edition Alpha]</code></li>
-          <li>Two-line: card name on one line, set name on the next</li>
-        </ul>
-        <textarea
-          id="raw-input"
-          rows="12"
-          placeholder="Paste order text here…"
-          spellcheck="false"
-        ></textarea>
-
-        <p class="hint">Supported: .mht, .mhtml, .html, .htm — you can upload multiple files.</p>
-        <div class="file-upload">
-          <input id="file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple="">
-          <button id="parse-files-btn" class="btn btn-secondary">Parse uploaded files</button>
-        </div>
-
-        <div class="actions">
-          <button id="convert-btn" class="btn btn-primary">Convert to CSV</button>
-          <button id="clear-btn" class="btn btn-secondary">Clear</button>
-        </div>
-
-        <div id="error-msg" class="error-msg" hidden></div>
-      </section>
-
-      <!-- Output section (hidden until conversion succeeds) -->
-      <section class="card" id="output-section" hidden>
-        <div class="section-header">
-          <label class="section-label">CSV Output</label>
-          <div class="output-actions">
-            <button id="copy-btn" class="btn btn-secondary btn-sm">Copy</button>
-            <button id="download-btn" class="btn btn-primary btn-sm">Download .csv</button>
-          </div>
-        </div>
-
-        <textarea
-          id="csv-output"
-          rows="12"
-          readonly
-          spellcheck="false"
-        ></textarea>
-
-        <p id="card-count" class="card-count"></p>
-      </section>
-
-      </div><!-- /converter-section -->
-
       <!-- ── Order Tracker ──────────────────────────────────── -->
-      <div id="tracker-section" role="tabpanel">
+      <div id="tracker-section">
 
         <!-- Save indicator -->
         <div id="save-indicator" class="save-indicator" aria-live="polite"></div>
@@ -107,9 +44,8 @@
           <p class="hint">Choose one or more TCGPlayer order-history files to populate the tracker.</p>
           <div class="file-upload">
             <input id="tracker-file-input" type="file" accept=".mht,.mhtml,.html,.htm" multiple />
-            <button id="tracker-parse-btn" class="btn btn-secondary">Load now</button>
           </div>
-          <p class="hint">Files load automatically after selection. Use Load now to retry the current selection.</p>
+          <p class="hint">Files load automatically after selection.</p>
           <div id="tracker-upload-msg" class="hint" style="margin-top:0.5rem;" hidden></div>
         </section>
 
@@ -204,7 +140,6 @@
   </div>
 
   <script src="localStore.js"></script>
-  <script src="app.js"></script>
   <script src="tracker.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

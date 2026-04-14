@@ -10,12 +10,11 @@
  *           network-only for cross-origin requests (Drive API, Scryfall, GIS)
  */
 
-var CACHE_NAME = 'tcg-tracker-v1';
+var CACHE_NAME = 'tcg-tracker-v2';
 
 var APP_SHELL = [
   './',
   './index.html',
-  './app.js',
   './tracker.js',
   './style.css',
   './localStore.js',

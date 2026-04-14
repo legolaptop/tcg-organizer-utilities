@@ -73,11 +73,6 @@
   let localUpdatedAt = null; // ISO timestamp of the last local IndexedDB save
 
   // ── DOM references ────────────────────────────────────────────
-  const navConverter = document.getElementById('nav-converter');
-  const navTracker = document.getElementById('nav-tracker');
-  const converterSection = document.getElementById('converter-section');
-  const trackerSection = document.getElementById('tracker-section');
-
   // Drive auth control (compact, top-right of tracker view)
   const driveAuthControl = document.getElementById('drive-auth-control');
   const driveConnectBtn = document.getElementById('drive-connect-btn');
@@ -87,7 +82,6 @@
 
   const saveIndicator = document.getElementById('save-indicator');
   const trackerFileInput = document.getElementById('tracker-file-input');
-  const trackerParseBtn = document.getElementById('tracker-parse-btn');
   const trackerUploadMsg = document.getElementById('tracker-upload-msg');
 
   const filterTabs = document.querySelectorAll('.filter-tab');
@@ -106,10 +100,7 @@
   const toggleAllBtn = document.getElementById('toggle-all-btn');
   const trackerSearchInput = document.getElementById('tracker-search');
   const trackerSearchClear = document.getElementById('tracker-search-clear');
-  const defaultTrackerParseBtnText = trackerParseBtn.textContent;
   let exportDockOpen = false;
-
-  // ── Tab navigation ────────────────────────────────────────────
 
   function getSharedScryfallSessionState() {
     if (!window.__tcgScryfallSessionState) {
@@ -147,27 +138,6 @@
       scryfallId: json.id || '',
       scryfallUri: json.scryfall_uri || '',
     };
-  }
-
-  navConverter.addEventListener('click', () => showTab('converter'));
-  navTracker.addEventListener('click', () => showTab('tracker'));
-
-  function showTab(tab) {
-    if (tab === 'converter') {
-      converterSection.hidden = false;
-      trackerSection.hidden = true;
-      navConverter.classList.add('tab-btn--active');
-      navConverter.setAttribute('aria-selected', 'true');
-      navTracker.classList.remove('tab-btn--active');
-      navTracker.setAttribute('aria-selected', 'false');
-    } else {
-      converterSection.hidden = true;
-      trackerSection.hidden = false;
-      navConverter.classList.remove('tab-btn--active');
-      navConverter.setAttribute('aria-selected', 'false');
-      navTracker.classList.add('tab-btn--active');
-      navTracker.setAttribute('aria-selected', 'true');
-    }
   }
 
   // ── Google Identity Services ──────────────────────────────────
@@ -800,17 +770,12 @@
     return TCG_CONTENT_PATTERNS.some(re => re.test(text));
   }
 
-  trackerParseBtn.addEventListener('click', async () => {
-    await loadTrackerOrdersFromSelection(true);
-  });
-
   trackerFileInput.addEventListener('change', async () => {
     if (!trackerFileInput.files || trackerFileInput.files.length === 0) return;
     await loadTrackerOrdersFromSelection(false);
   });
 
   async function loadTrackerOrdersFromSelection(showMissingFileError) {
-    if (trackerParseBtn.disabled) return;
     const files = trackerFileInput.files;
     if (!files || files.length === 0) {
       if (showMissingFileError) {
@@ -827,8 +792,6 @@
       return;
     }
 
-    trackerParseBtn.disabled = true;
-    trackerParseBtn.textContent = 'Loading…';
     showUploadMsg('Loading selected files…', false);
 
     try {
@@ -914,9 +877,6 @@
     } catch (e) {
       showUploadMsg('An error occurred parsing files.', true);
       console.error(e);
-    } finally {
-      trackerParseBtn.disabled = false;
-      trackerParseBtn.textContent = defaultTrackerParseBtnText;
     }
   }
 
@@ -2310,9 +2270,6 @@
   async function onPageReady() {
     initGoogleAuth();
     setAuthStatus('disconnected');
-    const tabParam = new URLSearchParams(window.location.search).get('t');
-    const initialTab = tabParam === 'converter' ? 'converter' : 'tracker';
-    showTab(initialTab);
 
     // Restore state from IndexedDB before first render so that tracker is
     // populated immediately, even when Google Drive is not connected.

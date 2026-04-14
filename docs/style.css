@@ -299,37 +299,6 @@ footer a:hover {
   outline-offset: 2px;
 }
 
-/* ── Tab navigation ────────────────────────────────────────── */
-.tab-nav {
-  display: flex;
-  justify-content: center;
-  gap: 0.25rem;
-  margin-top: 0.7rem;
-}
-
-.tab-btn {
-  cursor: pointer;
-  background: transparent;
-  border: 2px solid transparent;
-  border-radius: 6px 6px 0 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  padding: 0.5rem 1.25rem;
-  color: #4a5568;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-
-.tab-btn:hover {
-  color: #2b4c8c;
-  background: #edf2f7;
-}
-
-.tab-btn--active {
-  color: #2b4c8c;
-  border-color: #2b4c8c;
-  background: #fff;
-}
-
 /* ── Drive auth control ──────────────────────────────────────── */
 .tracker-upload-head {
   display: flex;
@@ -407,10 +376,6 @@ footer a:hover {
 #tracker-upload-section #tracker-file-input {
   flex: 1 1 280px;
   min-width: 220px;
-}
-
-#tracker-upload-section #tracker-parse-btn {
-  margin-left: auto;
 }
 
 .drive-auth-control {

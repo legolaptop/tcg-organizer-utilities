@@ -1431,7 +1431,7 @@
       });
   }
 
-  function getCardsForOrderExport(order, state) {
+  function getAllCardsForOrderExport(order, state) {
     if (!order || order.canceled) return [];
     const orderState = state[order.id] || {};
     const cardStates = orderState.cards || {};
@@ -1709,7 +1709,7 @@
     exportSingleBtn.textContent = 'Export to CSV';
     exportSingleBtn.addEventListener('click', async (event) => {
       event.stopPropagation();
-      const orderCards = getCardsForOrderExport(order, trackerState);
+      const orderCards = getAllCardsForOrderExport(order, trackerState);
       if (orderCards.length === 0) {
         alert('No exportable cards found for this order.');
         return;
@@ -2048,6 +2048,7 @@
         return true;
       } catch (error) {
         if (error && error.name === 'AbortError') return false;
+        console.warn('Save picker failed, falling back to direct download:', error);
       }
     }
     const blob = new Blob([csv], { type: 'text/csv' });

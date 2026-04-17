@@ -2016,7 +2016,8 @@
       const selectedFormat = exportFormat ? exportFormat.value : 'generic';
       const enrichedCards = await enrichCardsForExport(receivedCards);
       const csv = formatCardsToCSV(enrichedCards, selectedFormat);
-      await saveCsvWithPrompt(csv, 'export.csv');
+      const didSave = await saveCsvWithPrompt(csv, 'export.csv');
+      if (!didSave) return;
 
       // Mark all included orders as archived once exported.
       const exportedOrderIds = getReceivedOrderIdsForExport(orders, trackerState, includeExported);
@@ -2033,17 +2034,21 @@
 
   async function saveCsvWithPrompt(csv, defaultName) {
     if (typeof window.showSaveFilePicker === 'function') {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: defaultName,
-        types: [{
-          description: 'CSV file',
-          accept: { 'text/csv': ['.csv'] },
-        }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(csv);
-      await writable.close();
-      return;
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [{
+            description: 'CSV file',
+            accept: { 'text/csv': ['.csv'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(csv);
+        await writable.close();
+        return true;
+      } catch (error) {
+        if (error && error.name === 'AbortError') return false;
+      }
     }
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -2052,6 +2057,7 @@
     a.download = defaultName;
     a.click();
     URL.revokeObjectURL(url);
+    return true;
   }
 
   async function enrichCardsForExport(cards) {

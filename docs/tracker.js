@@ -1431,10 +1431,9 @@
       });
   }
 
-  function getReceivedCardsForOrderExport(order, state) {
+  function getExportableCardsForOrder(order, state) {
     if (!order || order.canceled) return [];
-    const orderState = state[order.id];
-    if (!orderState || !orderState.received) return [];
+    const orderState = state[order.id] || {};
     const cardStates = orderState.cards || {};
     return (order.cards || []).filter(card => {
       const cs = cardStates[cardKey(card)];
@@ -1710,9 +1709,9 @@
     exportSingleBtn.textContent = 'Export to CSV';
     exportSingleBtn.addEventListener('click', async (event) => {
       event.stopPropagation();
-      const orderCards = getReceivedCardsForOrderExport(order, trackerState);
+      const orderCards = getExportableCardsForOrder(order, trackerState);
       if (orderCards.length === 0) {
-        alert('Mark this order as Received before exporting it.');
+        alert('No exportable cards found for this order. Refunded or missing cards are excluded from export.');
         return;
       }
       const selectedFormat = exportFormat ? exportFormat.value : 'generic';
@@ -1726,7 +1725,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `order-${order.id}-${selectedFormat}.csv`;
+        a.download = `${order.id}.csv`;
         a.click();
         URL.revokeObjectURL(url);
       } finally {
@@ -2017,13 +2016,8 @@
       const selectedFormat = exportFormat ? exportFormat.value : 'generic';
       const enrichedCards = await enrichCardsForExport(receivedCards);
       const csv = formatCardsToCSV(enrichedCards, selectedFormat);
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `received-cards-${selectedFormat}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const didSave = await saveCsvWithPrompt(csv, 'export.csv');
+      if (!didSave) return;
 
       // Mark all included orders as archived once exported.
       const exportedOrderIds = getReceivedOrderIdsForExport(orders, trackerState, includeExported);
@@ -2037,6 +2031,38 @@
       exportBtn.textContent = originalLabel;
     }
   });
+
+  async function saveCsvWithPrompt(csv, defaultName) {
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [{
+            description: 'CSV file',
+            accept: { 'text/csv': ['.csv'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(csv);
+        await writable.close();
+        return true;
+      } catch (error) {
+        if (error.name === 'AbortError') return false;
+        if (error.name === 'NotAllowedError') {
+          alert('Save As permission was denied. Downloading export.csv instead.');
+        }
+        console.warn('Save picker failed, falling back to direct download:', error);
+      }
+    }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = defaultName;
+    a.click();
+    URL.revokeObjectURL(url);
+    return true;
+  }
 
   async function enrichCardsForExport(cards) {
     const ids = Array.from(new Set(

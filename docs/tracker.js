@@ -1711,7 +1711,7 @@
       event.stopPropagation();
       const orderCards = getExportableCardsForOrder(order, trackerState);
       if (orderCards.length === 0) {
-        alert('No exportable cards found for this order.');
+        alert('No exportable cards found for this order. Refunded or missing cards are excluded from export.');
         return;
       }
       const selectedFormat = exportFormat ? exportFormat.value : 'generic';
@@ -2047,7 +2047,10 @@
         await writable.close();
         return true;
       } catch (error) {
-        if (error.name === 'AbortError' || error.name === 'NotAllowedError') return false;
+        if (error.name === 'AbortError') return false;
+        if (error.name === 'NotAllowedError') {
+          alert('Save As permission was denied. Downloading export.csv instead.');
+        }
         console.warn('Save picker failed, falling back to direct download:', error);
       }
     }

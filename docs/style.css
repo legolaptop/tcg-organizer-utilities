@@ -485,6 +485,14 @@ footer a:hover {
   box-sizing: border-box;
 }
 
+.tracker-search-input::-webkit-search-decoration,
+.tracker-search-input::-webkit-search-cancel-button,
+.tracker-search-input::-webkit-search-results-button,
+.tracker-search-input::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .tracker-search-input:focus {
   outline: none;
   border-color: #2b4c8c;

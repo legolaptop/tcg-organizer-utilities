@@ -1386,11 +1386,29 @@
     const currentDay = toDateOnly(today);
     return {
       total: active.length,
-      totalCost: active.reduce((sum, o) => sum + (o.total || 0), 0),
+      totalCost: active.reduce((sum, o) => sum + getDisplayOrderTotal(o, state), 0),
       received: active.filter(o => state[o.id] && state[o.id].received).length,
       overdue: active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < currentDay).length,
       unconfirmed: active.filter(o => !(state[o.id] && state[o.id].received) && !o.shippingConfirmed).length,
     };
+  }
+
+  function getRefundedAmountForOrder(order, state) {
+    if (!order || !order.id) return 0;
+    const cardStates = (state[order.id] && state[order.id].cards) || {};
+    return (order.cards || []).reduce((sum, card) => {
+      const cs = cardStates[cardKey(card)];
+      if (!cs || !cs.canceled) return sum;
+      const price = Number.isFinite(card.price) ? card.price : 0;
+      const quantity = Number.isFinite(card.quantity) && card.quantity > 0 ? card.quantity : 1;
+      return sum + (price * quantity);
+    }, 0);
+  }
+
+  function getDisplayOrderTotal(order, state) {
+    const total = order && Number.isFinite(order.total) ? order.total : 0;
+    const refunded = getRefundedAmountForOrder(order, state);
+    return Math.max(0, total - refunded);
   }
 
   function getFilteredOrders(orderArr, state, filter, today) {
@@ -1400,6 +1418,8 @@
         return active.filter(o => !(state[o.id] && state[o.id].received) && !(state[o.id] && state[o.id].exported));
       case 'overdue':
         return active.filter(o => !(state[o.id] && state[o.id].received) && toDateOnly(o.estimatedDelivery) < toDateOnly(today) && !(state[o.id] && state[o.id].exported));
+      case 'unconfirmed':
+        return active.filter(o => !(state[o.id] && state[o.id].received) && !o.shippingConfirmed && !(state[o.id] && state[o.id].exported));
       case 'received':
         return active.filter(o => state[o.id] && state[o.id].received && !state[o.id].exported);
       case 'archived':
@@ -1470,6 +1490,21 @@
         },
       },
     };
+  }
+
+  function removeOrder(orderId) {
+    if (!orderId) return;
+    orders = orders.filter(order => order.id !== orderId);
+    if (Object.prototype.hasOwnProperty.call(trackerState, orderId)) {
+      const nextState = { ...trackerState };
+      delete nextState[orderId];
+      trackerState = nextState;
+    }
+    if (Object.prototype.hasOwnProperty.call(orderBodyHiddenState, orderId)) {
+      const nextUiState = { ...orderBodyHiddenState };
+      delete nextUiState[orderId];
+      orderBodyHiddenState = nextUiState;
+    }
   }
 
   /**
@@ -1608,6 +1643,7 @@
     const orderState = trackerState[order.id] || {};
     const isReceived = !!orderState.received;
     const status = isReceived ? 'standard' : getOrderStatus(order, today);
+    const displayTotal = getDisplayOrderTotal(order, trackerState);
     const hasUiHiddenState = Object.prototype.hasOwnProperty.call(orderBodyHiddenState, order.id);
     const isBodyHidden = hasUiHiddenState ? orderBodyHiddenState[order.id] : isReceived;
 
@@ -1646,7 +1682,7 @@
 
     const totalEl = document.createElement('span');
     totalEl.className = 'order-card__total';
-    totalEl.textContent = order.total > 0 ? `$${order.total.toFixed(2)}` : '';
+    totalEl.textContent = displayTotal > 0 ? `$${displayTotal.toFixed(2)}` : '';
 
     info.appendChild(sellerEl);
 
@@ -1681,7 +1717,7 @@
     header.appendChild(receivedLabel);
     header.appendChild(info);
     header.appendChild(badges);
-    if (order.total > 0) header.appendChild(totalEl);
+    if (displayTotal > 0) header.appendChild(totalEl);
     card.appendChild(header);
 
     // ── Body (expanded) ────────────────────────────────────────
@@ -1733,7 +1769,23 @@
         exportSingleBtn.textContent = originalText;
       }
     });
-    metaRow.appendChild(exportSingleBtn);
+    const actionsWrap = document.createElement('div');
+    actionsWrap.className = 'order-card__subheader-actions';
+    actionsWrap.appendChild(exportSingleBtn);
+
+    const removeOrderBtn = document.createElement('button');
+    removeOrderBtn.type = 'button';
+    removeOrderBtn.className = 'order-card__remove-btn';
+    removeOrderBtn.textContent = 'Remove Order';
+    removeOrderBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!window.confirm(`Remove order ${order.id}? This cannot be undone.`)) return;
+      removeOrder(order.id);
+      debouncedSave();
+      renderTracker();
+    });
+    actionsWrap.appendChild(removeOrderBtn);
+    metaRow.appendChild(actionsWrap);
 
     body.appendChild(metaRow);
 
@@ -1776,7 +1828,7 @@
     appendSummaryRow(totalsCol, 'Subtotal', summary.subtotal > 0 ? `$${summary.subtotal.toFixed(2)}` : '$0.00');
     appendSummaryRow(totalsCol, 'Shipping', summary.shipping >= 0 ? `$${summary.shipping.toFixed(2)}` : '$0.00');
     appendSummaryRow(totalsCol, 'Tax', summary.salesTax >= 0 ? `$${summary.salesTax.toFixed(2)}` : '$0.00');
-    appendSummaryRow(totalsCol, 'Total', order.total > 0 ? `$${order.total.toFixed(2)}` : '$0.00', true);
+    appendSummaryRow(totalsCol, 'Total', displayTotal > 0 ? `$${displayTotal.toFixed(2)}` : '$0.00', true);
 
     if (totalsCol.children.length > 0) {
       summaryWrap.appendChild(qtyInline);
